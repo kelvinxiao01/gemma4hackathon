@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" role="img" aria-label="Conduit">
+  <title>Conduit</title>
+  <!-- Single-tone variant. The inner conductor stroke is dropped: the two-tone
+       read collapses below about 24px and turns into mud in a browser tab. -->
+  <rect width="24" height="24" rx="5" fill="#16191B" />
+  <path d="M17.5 5.5 H10 A2 2 0 0 0 8 7.5 V16.5 A2 2 0 0 0 10 18.5 H17.5"
+        fill="none" stroke="#C2610A" stroke-width="3.5" stroke-linecap="butt" />
+</svg>

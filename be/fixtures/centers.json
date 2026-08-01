@@ -1,0 +1,23 @@
+[
+  {
+    "name": "Hudson Infusion Center",
+    "address": "410 Hudson Street, Suite 200, New York, NY 10014",
+    "phone": "+1 212 555 0142",
+    "distance_mi": 2.4,
+    "drugs": ["ustekinumab", "pembrolizumab"]
+  },
+  {
+    "name": "Eastside Oncology Day Unit",
+    "address": "1220 York Avenue, New York, NY 10065",
+    "phone": "+1 212 555 0175",
+    "distance_mi": 3.8,
+    "drugs": ["pembrolizumab", "nivolumab", "atezolizumab"]
+  },
+  {
+    "name": "Riverside Infusion Suite",
+    "address": "88 Riverside Boulevard, Jersey City, NJ 07310",
+    "phone": "+1 201 555 0188",
+    "distance_mi": 6.1,
+    "drugs": ["ustekinumab", "nivolumab"]
+  }
+]

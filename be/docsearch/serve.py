@@ -9,12 +9,14 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from calling.router import calling_health, install_calling_router
+from copilot.api import router as copilot_router
 
 from .embed import embed_query
 from .store import DB_PATH, _connect, search
 
 app = FastAPI(title="Prior-Auth Copilot policy search")
 install_calling_router(app)
+app.include_router(copilot_router)
 
 # The Next.js app calls this from the browser. Without these headers the browser
 # blocks the response read, and any POST carrying Content-Type: application/json

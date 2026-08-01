@@ -1,26 +1,107 @@
 @import "tailwindcss";
 
+/* Conduit palette.
+ *
+ * Graphite and Bone, with copper as the only accent. Warm paper rather than
+ * #ffffff because the job is reading hundreds of pages of policy text and a
+ * cold white under that load is hostile.
+ *
+ * Copper ships in three values because one value cannot clear WCAG AA on both
+ * surfaces. Measured: --copper is 3.75:1 on bone and 4.21:1 on graphite, so it
+ * is a fill and a large-text color only. Pick by surface, never by preference. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --graphite: #16191b;
+  --steel: #5f6664;
+  --bone: #f5f2ec;
+  --bone-dim: #e7e2d8;
+  --copper: #c2610a;
+  --copper-deep: #8f4206; /* copper as small text on bone */
+  --copper-lift: #e08434; /* copper as small text on graphite */
+
+  /* Confidence bands. The API returns one of these on every generated surface,
+   * so they are brand colors, not a status palette bolted on afterward.
+   * NEEDS_REVIEW is deliberately hueless: it is the one state that has to stop
+   * the eye, and it has to do that for a colorblind reader too. */
+  --band-high: #1e6f4c;
+  --band-medium: var(--copper-deep); /* not --copper: a chip is 11px text, and
+                                      * bone on --copper is 3.75:1. This is
+                                      * 6.37:1. */
+  --band-review: var(--graphite);
+  --band-rejected: var(--steel);
+
+  --background: var(--bone);
+  --foreground: var(--graphite);
+  --surface: var(--bone-dim);
+  --muted: var(--steel);
+  --accent: var(--copper);
+  --accent-text: var(--copper-deep);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: var(--graphite);
+    --foreground: var(--bone);
+    --surface: #1f2325;
+    --muted: #9aa19e;
+    --accent: var(--copper-lift);
+    --accent-text: var(--copper-lift);
+    --band-high: #3fa372;
+    --band-medium: var(--copper-lift);
+    --band-review: var(--bone);
+    --band-rejected: #9aa19e;
+  }
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-surface: var(--surface);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-text: var(--accent-text);
+  --color-band-high: var(--band-high);
+  --color-band-medium: var(--band-medium);
+  --color-band-review: var(--band-review);
+  --color-band-rejected: var(--band-rejected);
+  --font-sans: var(--font-plex-sans);
+  --font-mono: var(--font-plex-mono);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-plex-sans), ui-sans-serif, sans-serif;
+}
+
+/* Anything printed verbatim from a citation (page label, doc url, payer slug,
+ * band name) is mono. The contract says print `ref` exactly and never derive a
+ * page number from another field; monospace is that rule made visible. */
+.verbatim {
+  font-family: var(--font-plex-mono), ui-monospace, monospace;
+  font-variant-ligatures: none;
+}
+
+/* CONDUIT is stenciled on real pipe. That is where the tracking comes from. */
+.wordmark {
+  letter-spacing: 0.14em;
+  font-weight: 600;
+}
+
+/* One staggered page load, nothing else. Stagger with an inline
+ * animation-delay at the call site. */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+.rise {
+  animation: rise 520ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rise {
+    animation: none;
+  }
 }

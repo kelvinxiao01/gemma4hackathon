@@ -1,0 +1,20 @@
+{
+  "business_hours": {"opens": "08:00", "closes": "17:00"},
+  "utc_offset": "-04:00",
+  "slots": {
+    "pt-ravi": [
+      {"days_ahead": 2, "time": "07:15"},
+      {"days_ahead": 2, "time": "09:30"},
+      {"days_ahead": 4, "time": "13:45"}
+    ],
+    "pt-marcus": [
+      {"days_ahead": 3, "time": "08:00"},
+      {"days_ahead": 3, "time": "11:15"},
+      {"days_ahead": 5, "time": "15:00"}
+    ],
+    "pt-dana": [
+      {"days_ahead": 4, "time": "10:00"},
+      {"days_ahead": 6, "time": "14:30"}
+    ]
+  }
+}
