@@ -243,11 +243,14 @@ def run(patient: dict, sink: dict) -> Iterator[str]:
                          f"{patient['plan_type']} {patient['drug']} criteria.")
 
     if not LIVE:
+        # Filled before the first yield, not after the last. These criteria are
+        # derived from the record alone, so a client that hangs up mid-stream
+        # should still get the determination it asked for.
+        sink["criteria"], sink["summary"] = _canned_criteria(patient)
+        sink["model"] = "canned"
         for line in _CANNED_REASONING:
             yield line + "\n"
             time.sleep(CANNED_CADENCE)
-        sink["criteria"], sink["summary"] = _canned_criteria(patient)
-        sink["model"] = "canned"
         return
 
     excerpts, citations = _retrieve(patient)
