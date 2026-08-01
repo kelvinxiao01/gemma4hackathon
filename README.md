@@ -6,7 +6,7 @@ Built for Build with Gemma NYC: On-Device AI for Healthcare. Track 2, Agentic Ca
 
 ## The problem
 
-Prior authorization is manual administrative work. For a single oncology request, a specialist locates the payer's coverage policy, reads the criteria out of a long PDF, checks the patient's chart against each one, and drafts a justification letter. Over 70% of prior-auth volume still moves by fax, and CMS-0057-F requires electronic prior authorization by 2026.
+Prior authorization is manual administrative work. For a single oncology request, a specialist locates the payer's coverage policy, reads the criteria out of a long PDF, checks the patient's chart against each one, and drafts a justification letter. Much of this volume still moves by fax. CMS-0057-F tightens payer decision timeframes to 7 calendar days for standard requests and 72 hours for expedited ones starting January 2026, and requires FHIR prior-authorization APIs by January 2027.
 
 The users are billing and prior-authorization specialists, not clinicians.
 
@@ -43,7 +43,7 @@ voice/    LiveKit voice agent. Calls the retrieval API over HTTP.
 GET /search?q=<query>&payer=<slug>&drug=<slug>&top_k=8
 ```
 
-Each hit carries the chunk text, similarity score, payer, drug, plan type, page number, and source URL, so any answer can cite the page it came from.
+Each hit carries the chunk text, similarity score, payer, drug, plan type, page number, and source URL, so any answer can cite where it came from. Page numbers apply to PDF sources. HTML policy bulletins have no pagination, so they cite the document URL instead.
 
 ## Design decisions
 
@@ -55,6 +55,10 @@ Each hit carries the chunk text, similarity score, payer, drug, plan type, page 
 ## Data
 
 Public payer coverage policies only: published clinical policy bulletins and coverage criteria from Aetna, Anthem, Cigna, and UnitedHealthcare. No patient data is in this repository. Patient context used in demos is synthetic.
+
+`be/scripts/fetch_corpus.py` is the script that produced `be/corpus/`. It records each document's source URL and a SHA-256 of the fetched bytes, so any committed file can be checked against the live payer document.
+
+The policy text in `be/corpus/` is unmodified third-party material, reproduced here for research and reproducibility. Copyright remains with each payer (and, for CPT code references, the American Medical Association). It is not covered by this project's MIT license, which applies to the code.
 
 ## Running it
 
