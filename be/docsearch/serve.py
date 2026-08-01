@@ -6,6 +6,7 @@ Run: uv run python -m docsearch.serve
 from dataclasses import asdict
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 
 from calling.router import calling_health, install_calling_router
 
@@ -14,6 +15,20 @@ from .store import DB_PATH, _connect, search
 
 app = FastAPI(title="Prior-Auth Copilot policy search")
 install_calling_router(app)
+
+# The Next.js app calls this from the browser. Without these headers the browser
+# blocks the response read, and any POST carrying Content-Type: application/json
+# never reaches a handler at all: it forces a preflight OPTIONS, which returns
+# 405 unless this middleware answers it. localhost and 127.0.0.1 are different
+# origins to the browser, so both are listed. No allow_credentials: there is no
+# auth here and claiming otherwise would be a security posture with nothing
+# behind it.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["content-type"],
+)
 
 
 # Plain def, not async def: Starlette runs it in a threadpool, which is what a
