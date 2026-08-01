@@ -10,6 +10,10 @@
  * surfaces. Measured: --copper is 3.75:1 on bone and 4.21:1 on graphite, so it
  * is a fill and a large-text color only. Pick by surface, never by preference. */
 :root {
+  /* The demo runs on a projector in a bright room. The palette below is
+   * measured against bone, so an OS-level dark preference must not repaint it. */
+  color-scheme: light;
+
   --graphite: #16191b;
   --steel: #5f6664;
   --bone: #f5f2ec;
@@ -35,21 +39,11 @@
   --muted: var(--steel);
   --accent: var(--copper);
   --accent-text: var(--copper-deep);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: var(--graphite);
-    --foreground: var(--bone);
-    --surface: #1f2325;
-    --muted: #9aa19e;
-    --accent: var(--copper-lift);
-    --accent-text: var(--copper-lift);
-    --band-high: #3fa372;
-    --band-medium: var(--copper-lift);
-    --band-review: var(--bone);
-    --band-rejected: #9aa19e;
-  }
+  /* Copper carrying small text, which --accent cannot: bone on --copper is
+   * 3.75:1 and fails AA. This is 6.37:1, the same as the band-medium chip. */
+  --accent-fill: var(--copper-deep);
+  /* Visible on paper, unlike --bone-dim at 1.29:1 against white. */
+  --rule: #c9c3b6;
 }
 
 @theme inline {
@@ -59,6 +53,8 @@
   --color-muted: var(--muted);
   --color-accent: var(--accent);
   --color-accent-text: var(--accent-text);
+  --color-accent-fill: var(--accent-fill);
+  --color-rule: var(--rule);
   --color-band-high: var(--band-high);
   --color-band-medium: var(--band-medium);
   --color-band-review: var(--band-review);
@@ -103,5 +99,30 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .rise {
     animation: none;
+  }
+}
+
+/* The UA default focus ring is untouched by Tailwind preflight, so pin one that
+ * reads on both the bone page and the copper fill. */
+:focus-visible {
+  outline: 2px solid var(--graphite);
+  outline-offset: 2px;
+}
+
+/* The evidence receipt is handed to a payer or an auditor, so it has to survive
+ * a printer. Screen-only chrome carries this class and drops out. */
+@media print {
+  .screen-only {
+    display: none;
+  }
+
+  body {
+    background: #ffffff;
+  }
+
+  /* A quote that outruns the page must not leave its attribution behind: the
+   * whole premise of the receipt is that every claim carries its source. */
+  .keep-together {
+    break-inside: avoid;
   }
 }
