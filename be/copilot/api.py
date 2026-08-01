@@ -10,7 +10,7 @@ from starlette.background import BackgroundTask
 
 from docsearch.store import DB_PATH as INDEX_DB_PATH
 
-from . import llm, qualify, tracker
+from . import llm, orchestrate, qualify, tracker
 
 router = APIRouter(prefix="/copilot", tags=["copilot"])
 
@@ -67,11 +67,12 @@ def qualify_patient(patient_id: str):
     # The determination is written by a background task, not at the tail of
     # the generator: Starlette abandons the generator when the client
     # disconnects, and the tail would then fire late or never.
+    sink: dict = {}
     return StreamingResponse(
-        qualify.run(patient),
+        qualify.run(patient, sink),
         media_type="text/plain; charset=utf-8",
         headers={"Cache-Control": "no-cache"},
-        background=BackgroundTask(qualify.finalize, patient, epoch))
+        background=BackgroundTask(qualify.finalize, patient, epoch, sink))
 
 
 @router.post("/patients/{patient_id}/submit")
@@ -90,6 +91,7 @@ def submit(patient_id: str, body: SubmitBody):
             f"to {patient['payer_name']}.")
         tracker.set_stage(patient_id, "submitted",
                           f"Awaiting a decision from {patient['payer_name']}.")
+        orchestrate.start_payer_decision(patient_id, patient["payer_name"])
         return {"ok": True, "stage": "submitted"}
 
     criteria = patient["result"]["criteria"]
@@ -114,8 +116,13 @@ def schedule(patient_id: str):
             status_code=409,
             detail="scheduling needs an approved patient waiting on an "
                    f"appointment; this one is at stage {patient['stage']}")
-    tracker.append_event(patient_id, "note",
-                         "Appointment scheduling requested.")
+    call = patient["call"] or {}
+    if call.get("status") not in (None, "completed", "failed"):
+        raise HTTPException(
+            status_code=409,
+            detail="a call for this patient is already in progress; it "
+                   "finishes or times out before another can start")
+    orchestrate.start_scheduling(patient_id, patient["drug"])
     return {"ok": True}
 
 

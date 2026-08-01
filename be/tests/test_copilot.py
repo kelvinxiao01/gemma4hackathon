@@ -5,6 +5,7 @@ database the demo runs against.
 """
 
 import json
+import time
 import re
 import unicodedata
 from datetime import datetime
@@ -13,7 +14,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from copilot import llm, qualify, tracker
+from copilot import llm, orchestrate, qualify, tracker
 from copilot.api import _search_health, router
 from copilot.score import score_criteria
 
@@ -34,15 +35,68 @@ def db(tmp_path, monkeypatch):
     return tmp_path
 
 
+def _fake_excerpts(patient):
+    """Stand in for retrieval: one excerpt, one citation, no index needed."""
+    doc = tracker.policy_doc(patient["payer"], patient["drug"],
+                             patient["plan_type"])
+    return "[1] policy excerpt", [{
+        "payer_name": doc["payer_name"], "plan_type": doc["plan_type"],
+        "ref": "p.2", "doc_url": doc["doc_url"], "quote": "policy excerpt"}]
+
+
+def _fake_stream(patient):
+    """A model reply in the real wire shape: reasoning, sentinel, then JSON.
+
+    The statuses come from the same record the live model would read, so the
+    two intake patients still diverge the way the demo needs.
+    """
+    criteria, summary = qualify._canned_criteria(patient)
+    payload = {"criteria": [{"criterion": c["criterion"], "kind": c["kind"],
+                             "status": c["status"], "evidence": c["evidence"],
+                             "citation": 1} for c in criteria],
+               "summary": summary}
+    def stream(messages, **kwargs):
+        for line in qualify._CANNED_REASONING:
+            yield line + "\n"
+        # Split across chunks so the sentinel has to be matched on a window.
+        yield "===RES"
+        yield "ULT===\n"
+        yield json.dumps(payload)
+    return stream
+
+
 @pytest.fixture
 def client(db, monkeypatch):
-    # The canned stream sleeps between lines so the demo reads at human pace.
-    # Tests do not need the pace and pay for it eight times per call.
+    # The payer answers on a real timer. Left armed, every submit test would
+    # leave an eight second thread running and racing the assertions.
+    monkeypatch.setattr(orchestrate, "start_payer_decision",
+                        lambda *args: None)
+    # The canned stream paces itself for a human watching. Tests pay that eight
+    # times per qualification and learn nothing from it.
     monkeypatch.setattr(qualify, "CANNED_CADENCE", 0)
+    monkeypatch.setattr(qualify, "_retrieve", _fake_excerpts)
+    monkeypatch.setattr(
+        qualify.llm, "stream_chat",
+        lambda messages, **kw: _fake_stream(_stream_patient[0])(messages))
     app = FastAPI()
     app.include_router(router)
     with TestClient(app) as c:
         yield c
+
+
+# The fake stream needs the patient the request is for; `stream_chat` only
+# receives messages, so the route records it here on the way past.
+_stream_patient = [None]
+
+
+@pytest.fixture(autouse=True)
+def _capture_patient(monkeypatch):
+    original = qualify.run
+
+    def wrapped(patient, sink):
+        _stream_patient[0] = patient
+        return original(patient, sink)
+    monkeypatch.setattr(qualify, "run", wrapped)
 
 
 # --- the band rule ----------------------------------------------------------
@@ -106,6 +160,23 @@ def test_an_empty_result_does_not_qualify():
     as criteria not met with no human ever seeing it.
     """
     assert score_criteria([]) == (0, "NEEDS_REVIEW")
+
+
+def test_an_entirely_undocumented_record_routes_to_review_not_refusal():
+    """Undocumented is not contradicted, whatever the points say.
+
+    Every requirement UNKNOWN scores below the floor, but closing the case on
+    that alone would be an adverse determination no human ever saw.
+    """
+    undocumented = ([_c("required", "UNKNOWN")] * 4
+                    + [_c("supporting", "MET")] * 4)
+    score, band = score_criteria(undocumented)
+    assert score < 60 and band == "NEEDS_REVIEW"
+
+    # One requirement actually determined puts the floor back in play.
+    partly = ([_c("required", "MET")] + [_c("required", "UNKNOWN")] * 3
+              + [_c("supporting", "MET")] * 4)
+    assert score_criteria(partly) == (40, "NOT_QUALIFIED")
 
 
 def test_supporting_criteria_alone_cannot_qualify_a_patient():
@@ -396,6 +467,85 @@ def test_schedule_requires_an_approved_patient_at_scheduling(client):
         "/copilot/patients/pt-dana/schedule").status_code == 409
     assert client.post(
         "/copilot/patients/pt-ravi/schedule").status_code == 200
+
+
+def test_the_live_path_splits_the_sentinel_and_resolves_citations(
+        client, monkeypatch):
+    """The model's reply is reasoning, then a sentinel, then JSON.
+
+    Neither the sentinel nor the JSON may reach the client, and the excerpt
+    number the model writes has to become a real citation.
+    """
+    monkeypatch.setattr(qualify, "LIVE", True)
+    body = client.post("/copilot/patients/pt-dana/qualify").text
+    assert "===RESULT===" not in body
+    assert "{" not in body
+    assert "Criterion 1 of 4" in body
+
+    dana = client.get("/copilot/patients/pt-dana").json()
+    assert dana["result"]["criteria"][0]["citation"]["ref"] == "p.2"
+    receipt = client.get(
+        f"/copilot/evidence/{dana['evidence_id']}").json()
+    assert receipt["model"] == qualify.llm.MODEL
+
+
+def test_an_out_of_range_citation_falls_back_to_the_first_excerpt():
+    citations = [{"ref": "p.2"}, {"ref": "p.3"}]
+    assert qualify.context.resolve(9, citations)["ref"] == "p.2"
+    assert qualify.context.resolve("not a number", citations)["ref"] == "p.2"
+    assert qualify.context.resolve(2, citations)["ref"] == "p.3"
+
+
+def test_a_reply_with_no_json_after_the_sentinel_does_not_persist(
+        client, monkeypatch):
+    """A malformed reply returns the case to the queue, never a determination."""
+    monkeypatch.setattr(qualify, "LIVE", True)
+    monkeypatch.setattr(qualify.llm, "stream_chat",
+                        lambda messages, **kw: iter(["thinking\n",
+                                                     "===RESULT===\n",
+                                                     "not json at all"]))
+    assert client.post("/copilot/patients/pt-dana/qualify").status_code == 200
+    dana = client.get("/copilot/patients/pt-dana").json()
+    assert dana["stage"] == "intake"
+    assert dana["result"] is None
+
+
+def test_scheduling_books_the_nearest_center_that_offers_the_drug(
+        client, monkeypatch):
+    # Run the call steps inline instead of on timers, so the assertions do not
+    # race a thread pool.
+    monkeypatch.setattr(orchestrate, "_later",
+                        lambda delay, fn, *args: fn(*args))
+    assert client.post(
+        "/copilot/patients/pt-ravi/schedule").status_code == 200
+
+    ravi = client.get("/copilot/patients/pt-ravi").json()
+    assert ravi["stage"] == "booked"
+    assert ravi["appointment"]["center_name"] == "Hudson Infusion Center"
+    # 07:15 is outside business hours, so the picker takes the next slot.
+    assert ravi["appointment"]["starts_at"].endswith("T09:30:00-04:00")
+
+    kinds = [e["kind"] for e in ravi["events"]]
+    for expected in ("center_search", "slot_identified", "call_created",
+                     "call_dialing", "call_completed", "booked"):
+        assert expected in kinds
+
+    search = next(e for e in ravi["events"] if e["kind"] == "center_search")
+    offered = [c for c in search["payload"]["centers"] if c["offers_drug"]]
+    assert len(offered) == 2 and len(search["payload"]["centers"]) == 3
+
+
+def test_submit_hands_the_case_to_the_payer(client):
+    """The payer answers on a timer; here it is invoked directly."""
+    client.post("/copilot/patients/pt-marcus/qualify")
+    client.post("/copilot/patients/pt-marcus/submit", json={"action": "submit"})
+    orchestrate._payer_decided("pt-marcus", "UnitedHealthcare",
+                               tracker.epoch())
+
+    marcus = client.get("/copilot/patients/pt-marcus").json()
+    assert marcus["stage"] == "scheduling"
+    assert marcus["decision"]["outcome"] == "APPROVED"
+    assert marcus["decision"]["source"] == "payer"
 
 
 def test_an_interrupted_qualification_returns_the_case_to_the_queue(
