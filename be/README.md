@@ -13,7 +13,7 @@ the teammate-owned payer-criteria SQLite database.
 
 ```bash
 cp .env.example .env.local
-# Fill Tross credentials and use `lk --project gemma4hackathon app env ...`
+# Fill LiveKit credentials with `lk --project gemma4hackathon app env ...`
 uv sync
 uv run python -m docsearch.serve
 ```
@@ -38,30 +38,42 @@ curl --request POST http://127.0.0.1:8000/calls \
   --header 'content-type: application/json' \
   --data '{
     "to_phone_number": "+12125550123",
-    "patient_id": "sandbox-patient-id",
+    "patient_id": "case-002",
     "payer": "aetna",
     "plan_type": "commercial",
-    "drug": "pembrolizumab"
+    "drug": "ustekinumab"
   }'
 ```
 
 The API returns `202` immediately. Poll the supplied `status_url`. It returns a
 masked destination, lifecycle state, outcome, sanitized summary, unresolved
-questions, and public sources; it never returns the full Tross payload or a
+questions, and public sources; it never returns the full synthetic-case payload or a
 transcript. Only one non-terminal call is allowed at a time.
 
-## Tross-free synthetic phone test
+## Synthetic cases
+
+`patient_id` is a fixture `case_id`. Its payer, plan type, and drug must match
+the selected case; a mismatch fails before dispatch. The launcher derives those
+three fields automatically.
+
+| Case | Coverage scenario |
+| --- | --- |
+| `case-001` | Aetna commercial ustekinumab; no TB screening recorded |
+| `case-002` | Aetna commercial ustekinumab; negative TB screening recorded |
+| `case-003` | UHC commercial pembrolizumab; no matching committed policy |
+
+## Fixture-backed synthetic phone test
 
 `scripts/demo_call.py` runs the same LiveKit dispatch, worker context/callback,
-and SIP path as the normal backend, but supplies a fixed synthetic patient brief
-instead of contacting Tross. It is intentionally separate from
-`python -m docsearch.serve`, so the regular backend retains its fail-before-dial
-Tross behavior.
+and SIP path as the normal backend, using a selected case from
+`fixtures/cases.json`. It is intentionally separate from
+`python -m docsearch.serve` because it also allowlists one destination for the
+phone test.
 
 Use only a Twilio-verified demo number you are authorized to call. First start
 the synthetic backend; it binds only to `127.0.0.1:8000` and allowlists the one
 destination supplied on the command line. It needs only the three LiveKit
-variables in `be/.env.local`, not any `TROSS_*` values.
+variables in `be/.env.local`.
 
 ```bash
 cd be
@@ -83,9 +95,7 @@ required before the script sends a request that can dial the allowlisted number.
 cd be
 uv run python scripts/demo_call.py launch \
   --to +13478868173 \
-  --payer aetna \
-  --plan-type commercial \
-  --drug pembrolizumab \
+  --case-id case-002 \
   --confirm
 ```
 
@@ -95,7 +105,8 @@ Do not run the regular backend on port 8000 at the same time.
 
 ## Environment
 
-See [`.env.example`](.env.example). `PAYER_CRITERIA_DB_PATH` is optional until
+See [`.env.example`](.env.example). Only LiveKit settings are needed for calls.
+`PAYER_CRITERIA_DB_PATH` is optional until
 the teammate-owned schema is available. Do not create, migrate, copy, or infer
 tables for that database here. Once it arrives, implement its parameterized
 read-only mapping entirely inside the dedicated SQLite adapter.

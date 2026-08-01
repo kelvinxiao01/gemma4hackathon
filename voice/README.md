@@ -13,7 +13,7 @@ It uses direct provider integrations:
 
 Tavily is available only as a bounded fallback tool: basic search, a maximum of
 three results, a short timeout, no retry, and domains limited to the selected
-payer's official sites plus `cms.gov`. Patient or Tross data is never included
+payer's official sites plus `cms.gov`. Patient-case data is never included
 in a Tavily query.
 
 ## Setup

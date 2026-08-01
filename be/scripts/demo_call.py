@@ -1,4 +1,4 @@
-"""Run a Tross-free synthetic backend and launch one allowlisted demo call.
+"""Run a fixture-backed synthetic backend and launch one allowlisted demo call.
 
 Start ``serve`` in one terminal, the LiveKit worker in another, then use
 ``launch --confirm`` from a third terminal.  The server must stay running for
@@ -52,25 +52,21 @@ def _positive_float(value: str) -> float:
 def _call_options(args: argparse.Namespace) -> SyntheticCallOptions:
     return SyntheticCallOptions(
         to_phone_number=args.to_phone_number,
-        payer=args.payer,
-        plan_type=args.plan_type,
-        drug=args.drug,
+        case_id=args.case_id,
     )
 
 
 def _validated_destination(number: str) -> str:
     return build_synthetic_call_request(SyntheticCallOptions(
         to_phone_number=number,
-        payer="aetna",
-        plan_type="commercial",
-        drug="pembrolizumab",
+        case_id="case-001",
     )).to_phone_number
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Run an explicitly allowlisted synthetic demo call without Tross. "
+            "Run an explicitly allowlisted fixture-backed demo call. "
             "The real LiveKit worker and SIP trunk are still used."
         ),
     )
@@ -89,20 +85,10 @@ def _parser() -> argparse.ArgumentParser:
 
     launch = commands.add_parser(
         "launch",
-        help="create and monitor one synthetic demo call",
+        help="create and monitor one fixture-backed demo call",
     )
     launch.add_argument("--to", dest="to_phone_number", required=True)
-    launch.add_argument(
-        "--payer",
-        choices=("aetna", "anthem", "cigna", "uhc"),
-        default="aetna",
-    )
-    launch.add_argument(
-        "--plan-type",
-        choices=("commercial", "medicare", "medicaid"),
-        default="commercial",
-    )
-    launch.add_argument("--drug", default="pembrolizumab")
+    launch.add_argument("--case-id", required=True)
     launch.add_argument("--poll-interval", type=_positive_float, default=1.0)
     launch.add_argument(
         "--confirm",
@@ -113,8 +99,8 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _load_backend_environment() -> None:
-    # The server needs only LiveKit credentials.  Tross configuration is not
-    # read or checked by this synthetic harness.
+    # The server needs only LiveKit credentials. The patient context comes
+    # from the committed fixture, so no patient-service credentials are read.
     load_dotenv(BACKEND_ROOT / ".env.local", override=False)
 
 

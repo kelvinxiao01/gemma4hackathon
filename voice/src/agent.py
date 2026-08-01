@@ -168,7 +168,7 @@ def build_coverage_instructions() -> str:
         concise list of criteria findings, unresolved questions, and the best
         final outcome: completed, partial, or declined. The tool records the
         structured summary, plays the farewell, and hangs up. That summary must
-        contain coverage-policy facts only, never patient/Tross facts,
+        contain coverage-policy facts only, never patient-case facts,
         identifiers, names, contact data, raw briefing values, or a transcript.
         """
     )
@@ -423,10 +423,10 @@ class CoverageAgent(Agent):
             outcome: One of completed, partial, or declined.
             criteria_summary: Concise findings from supplied evidence, the
                 representative, or allowed public policy sources. Include policy
-                facts only—never patient/Tross facts, identifiers, names,
+                facts only—never patient-case facts, identifiers, names,
                 contact details, or raw briefing values.
             unresolved_questions: Policy follow-up items only; never include
-                patient/Tross facts, identifiers, names, contact details, or raw
+                patient-case facts, identifiers, names, contact details, or raw
                 briefing values. Use an empty list when none remain.
         """
 

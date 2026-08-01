@@ -1,8 +1,8 @@
-"""Tross-free composition helpers for one explicitly allowlisted demo call.
+"""Fixture-backed composition helpers for one explicitly allowlisted demo call.
 
 This module is deliberately separate from the normal backend wiring.  It
 preserves the actual dispatch, capability-token, callback, and SIP flow while
-replacing only the external Tross lookup with a fixed, non-identifying brief.
+using a committed synthetic case instead of an external patient lookup.
 """
 
 from __future__ import annotations
@@ -17,10 +17,9 @@ from fastapi import FastAPI
 from .coordinator import CallCoordinator
 from .criteria import UnavailableCriteriaRepository
 from .livekit import AgentDispatcher, LiveKitDispatcher
-from .models import CallRequest, PatientBrief
+from .models import CallRequest
 from .router import CallingServices, calling_health, install_calling_router
-
-SYNTHETIC_PATIENT_ID = "local-synthetic-demo"
+from .synthetic_cases import SyntheticCasePatientSource
 
 
 class SyntheticDemoConfigurationError(RuntimeError):
@@ -33,49 +32,25 @@ class DialConfirmationRequired(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class SyntheticCallOptions:
-    """The public coverage-policy inputs used for one synthetic call."""
+    """The selected fixture case and destination used for a synthetic call."""
 
     to_phone_number: str
-    payer: str
-    plan_type: str
-    drug: str
-
-
-class SyntheticDemoPatientSource:
-    """Return a fresh, fixed patient brief without network or Tross access."""
-
-    async def fetch_patient(self, patient_id: str) -> PatientBrief:
-        # The identifier is intentionally ignored.  Never carry a caller value
-        # into the synthetic patient data, logs, or a third-party request.
-        del patient_id
-        return PatientBrief(
-            quickview_data={
-                "demo_only": True,
-                "notice": "Synthetic call test. No patient data is available.",
-            },
-            banner_data={
-                "display_name": "Synthetic call-test patient",
-                "synthetic": True,
-            },
-        )
+    case_id: str
 
 
 def build_synthetic_call_request(options: SyntheticCallOptions) -> CallRequest:
-    """Validate public inputs while pinning the internal ID to a fake value."""
+    """Derive a valid public request from one committed synthetic case."""
 
-    return CallRequest(
+    return SyntheticCasePatientSource().build_call_request(
         to_phone_number=options.to_phone_number,
-        patient_id=SYNTHETIC_PATIENT_ID,
-        payer=options.payer,
-        plan_type=options.plan_type,
-        drug=options.drug,
+        case_id=options.case_id,
     )
 
 
 def required_livekit_config(
     environment: Mapping[str, str | None],
 ) -> tuple[str, str, str]:
-    """Read only the credentials needed for dispatch; never require Tross."""
+    """Read only the credentials needed for dispatch; no patient API is used."""
 
     livekit_url = (environment.get("LIVEKIT_URL") or "").strip()
     api_key = (environment.get("LIVEKIT_API_KEY") or "").strip()
@@ -116,11 +91,11 @@ def build_synthetic_demo_services(
     task_spawner: Callable[[Coroutine[Any, Any, Any]], object] = asyncio.create_task,
     timeout_seconds: float = 300,
 ) -> CallingServices:
-    """Build the real coordinator with only its Tross seam replaced."""
+    """Build the real coordinator with its fixture-backed patient source."""
 
     criteria_repository = UnavailableCriteriaRepository(readiness_mode="synthetic-demo")
     coordinator = CallCoordinator(
-        tross=SyntheticDemoPatientSource(),
+        patient_source=SyntheticCasePatientSource(),
         criteria_repository=criteria_repository,
         dispatcher=dispatcher or LiveKitDispatcher(
             url=livekit_url,
