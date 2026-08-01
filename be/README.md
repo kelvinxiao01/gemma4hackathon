@@ -37,7 +37,7 @@ Launch a synthetic demo call:
 curl --request POST http://127.0.0.1:8000/calls \
   --header 'content-type: application/json' \
   --data '{
-    "to_phone_number": "+12125550123",
+    "to_phone_number": "+13478868173",
     "patient_id": "case-002",
     "payer": "aetna",
     "plan_type": "commercial",
@@ -50,16 +50,21 @@ masked destination, lifecycle state, outcome, sanitized summary, unresolved
 questions, and public sources; it never returns the full synthetic-case payload or a
 transcript. Only one non-terminal call is allowed at a time.
 
-## Find and call an infusion center near ZIP 10001
+## Find an infusion center near ZIP 10001 and run the demo call
 
 Facility discovery is a separate, location-only flow. It sends Tavily a fixed
-query based on the supplied five-digit ZIP, returns at most three candidates
-with a normalized US phone number and source URL, and retains the selection in
-memory for ten minutes. It does not send any synthetic case, patient, provider,
-or caller data to Tavily.
+ZIP `10001` query, returns at most three candidates with a normalized US phone
+number and source URL, and retains the selection in memory for ten minutes. It
+does not send any synthetic case, patient, provider, or caller data to Tavily.
 
-Add the same `TAVILY_API_KEY` used by the worker to `be/.env.local`, then run
-the normal backend (not `scripts/demo_call.py serve`):
+Add the same `TAVILY_API_KEY` used by the worker and your verified demo number
+to `be/.env.local`, then run the normal backend (not
+`scripts/demo_call.py serve`):
+
+```dotenv
+TAVILY_API_KEY=...
+DEMO_OUTBOUND_PHONE_NUMBER=+13478868173
+```
 
 ```bash
 cd be
@@ -67,7 +72,7 @@ uv sync
 uv run python -m docsearch.serve
 ```
 
-In another terminal, inspect the candidates. The current hackathon default is
+In another terminal, inspect the candidates. This hackathon flow supports only
 ZIP `10001`:
 
 ```bash
@@ -75,32 +80,36 @@ cd be
 uv run python scripts/facility_call.py discover --zip 10001
 ```
 
-To place a call, rerun discovery, select the displayed candidate position, and
-explicitly acknowledge the destination. The `case_id` derives the call's payer,
-plan, and drug from `fixtures/cases.json`; it is not included in the Tavily
-query.
+`discover` prints an opaque `search_id` and a `candidate_id` for each exact
+candidate snapshot. Independently verify its phone number on an official or
+otherwise authoritative source, then select one of those IDs and explicitly
+acknowledge the demo call. The `case_id` derives the call's payer, plan, and
+drug from `fixtures/cases.json`; it is not included in the Tavily query.
 
 ```bash
 cd be
 uv run python scripts/facility_call.py launch \
-  --zip 10001 \
-  --candidate 1 \
+  --search-id '<search_id printed by discover>' \
+  --candidate-id '<candidate_id printed by discover>' \
   --case-id case-002 \
   --confirm
 ```
 
-The script uses the normal local backend's `POST /facility-searches` followed
-by `POST /facility-searches/{search_id}/calls`. The second route accepts only a
-candidate returned by that short-lived search and requires
-`confirm_destination: true`; it never accepts a free-form phone number. Tavily
-ranking is location-relevant search ranking, not a calculated geospatial
-distance, so verify the shown source before confirming a call.
+The script uses the normal local backend's `POST /facility-searches`,
+`GET /facility-searches/{search_id}`, and
+`POST /facility-searches/{search_id}/demo-calls`. The second route shows the
+exact short-lived snapshot you selected; the third accepts only a candidate
+returned by it and requires `confirm_destination: true`. It never accepts a
+free-form phone number.
 
-Twilio Trial accounts cannot call an arbitrary discovered center: Twilio must
-already recognize the destination as verified. Upgrade the account before
-calling real facilities, or continue using the single verified demo number and
-the fixture-backed harness below. The existing `demo_call.py serve` allowlist
-remains intentionally unable to dial a discovered number.
+The selected facility is **never dialed**. It is private context for the
+Conduit demo agent; every facility demo call is sent only to
+`DEMO_OUTBOUND_PHONE_NUMBER`. Discovery is restricted to ZIP `10001`. A
+candidate phone is deterministically extracted only when the Tavily result
+labels it as a phone/call number; it is not guessed or independently verified
+as a direct line. Tavily ranking is location-relevant search ranking, not a
+calculated geospatial distance, so treat candidates as display-only and verify
+them separately before any future real-world use.
 
 ## Synthetic cases
 

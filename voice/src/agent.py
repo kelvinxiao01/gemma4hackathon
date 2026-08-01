@@ -158,9 +158,10 @@ def build_coverage_instructions() -> str:
 
         For an infusion-center recipient, act as a care-sourcing coordinator:
         ask for new-patient scheduling or intake, confirm the center is the
-        right place to discuss treatment access, and collect only the general
-        information needed for staff follow-up. Do not share any patient detail
-        until the recipient confirms they are the right person or department.
+        right place to discuss treatment access, and record only general,
+        non-identifying intake information from the conversation. Do not share
+        any patient detail until the recipient confirms they are the right
+        person or department.
         Do not disclose a date of birth, insurance identifier, financial detail,
         or full clinical notes over the phone.
 
@@ -170,7 +171,8 @@ def build_coverage_instructions() -> str:
         confirmation number, a distance, an appointment, or any fact absent
         from the private material. Do not claim to send records or to confirm a
         booking. If a center needs information outside the supplied material,
-        state that a staff member will follow up.
+        state only that you cannot complete that action on this call; do not
+        promise a staff follow-up, a callback, or any later action.
 
         Use the supplied coverage evidence first. If it is insufficient, use
         search_public_coverage_policy only for general public policy documents.
@@ -183,13 +185,15 @@ def build_coverage_instructions() -> str:
         second call. If the representative declines or cannot answer, record
         that plainly rather than guessing.
 
-        Before ending a human conversation, call complete_coverage_call with a
-        concise list of findings or general logistics, unresolved questions,
-        and the best final outcome: completed, partial, or declined. The tool
-        records the structured summary, plays the farewell, and hangs up. That
-        summary must never contain patient-case facts, identifiers, names,
-        contact data, raw briefing values, a claimed appointment, or a
-        transcript.
+        Before ending a human conversation, use the outcome tool that matches
+        the recipient: complete_coverage_call for a payer coverage discussion,
+        or complete_infusion_center_call for an infusion-center intake or
+        logistics discussion. Provide concise findings or general logistics,
+        unresolved questions, and the best final outcome: completed, partial,
+        or declined. The tool records the structured summary, plays the
+        farewell, and hangs up. That summary must never contain patient-case
+        facts, identifiers, names, contact data, raw briefing values, a
+        claimed appointment, or a transcript.
         """
     )
 
@@ -474,11 +478,57 @@ class CoverageAgent(Agent):
                 briefing values. Use an empty list when none remain.
         """
 
+        if self._runtime.context.recipient.kind != "payer":
+            raise ToolError(
+                "This is an infusion-center call. Use complete_infusion_center_call."
+            )
+
         await self._runtime.complete(
             context,
             outcome=outcome.lower().strip(),
             criteria_summary=criteria_summary,
             unresolved_questions=unresolved_questions,
+        )
+
+    @function_tool()
+    async def complete_infusion_center_call(
+        self,
+        context: RunContext,
+        outcome: str,
+        intake_summary: list[str],
+        follow_up_questions: list[str],
+    ) -> None:
+        """Record a final infusion-center intake result, say goodbye, and hang up.
+
+        Call this only after a human infusion-center scheduling or intake
+        discussion is complete. It must never be used for voicemail, IVR, or
+        an unavailable mailbox because the outbound lifecycle handles those
+        outcomes without speaking.
+
+        Args:
+            outcome: One of completed, partial, or declined.
+            intake_summary: Concise, non-identifying scheduling or intake
+                findings. Never include patient-case facts, identifiers, names,
+                contact details, raw briefing values, or a claimed appointment.
+            follow_up_questions: Non-identifying unresolved intake questions.
+                Never include patient-case facts, identifiers, names, contact
+                details, or raw briefing values. Use an empty list when none
+                remain.
+        """
+
+        if self._runtime.context.recipient.kind != "infusion-center":
+            raise ToolError(
+                "This is a payer coverage call. Use complete_coverage_call."
+            )
+
+        # The existing backend CallSummary contract stores structured findings
+        # in criteria_summary. Keep that public callback schema stable while
+        # presenting facility-appropriate fields to the model.
+        await self._runtime.complete(
+            context,
+            outcome=outcome.lower().strip(),
+            criteria_summary=intake_summary,
+            unresolved_questions=follow_up_questions,
         )
 
 

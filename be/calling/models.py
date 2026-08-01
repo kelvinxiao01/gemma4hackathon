@@ -93,7 +93,7 @@ class FacilitySearchRequest(BaseModel):
     @field_validator("zip_code")
     @classmethod
     def validate_us_zip_code(cls, value: str) -> str:
-        if len(value) != 5 or not value.isdigit():
+        if not is_us_zip_code(value):
             raise ValueError("zip_code must be a five-digit US ZIP code")
         return value
 
@@ -127,7 +127,7 @@ class FacilitySearchResponse(BaseModel):
 
 
 class FacilityCallRequest(BaseModel):
-    """Select an in-memory result and explicitly approve its outbound call."""
+    """Select an in-memory result and explicitly approve a configured demo call."""
 
     candidate_id: str = Field(min_length=1, max_length=100)
     case_id: str = Field(min_length=1, max_length=200)
@@ -265,12 +265,26 @@ def validate_us_e164(value: str, *, field_name: str) -> str:
 
     # Trial-account destination verification remains Twilio's responsibility;
     # this validation only prevents accidental non-US calls and format drift.
-    if len(value) != 12 or not value.startswith("+1"):
-        raise ValueError(f"{field_name} must be a US E.164 number")
-    national = value[2:]
-    if not national.isdigit() or national[0] not in "23456789":
+    if not is_us_e164(value):
         raise ValueError(f"{field_name} must be a US E.164 number")
     return value
+
+
+def is_us_e164(value: str) -> bool:
+    """Return whether ``value`` is a canonical US/NANP E.164 number."""
+
+    return (
+        len(value) == 12
+        and value.startswith("+1")
+        and value[2:].isdigit()
+        and value[2] in "23456789"
+    )
+
+
+def is_us_zip_code(value: str) -> bool:
+    """Return whether ``value`` is a five-digit US ZIP code."""
+
+    return len(value) == 5 and value.isdigit()
 
 
 def mask_phone_number(number: str) -> str:

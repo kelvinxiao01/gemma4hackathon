@@ -1,8 +1,8 @@
-"""Discover a 10001 infusion center, explicitly select it, and launch one call.
+"""Discover a 10001 infusion center and launch a call to the configured demo phone.
 
 The normal local backend must already be running. Discovery results remain only
-in that backend's memory, and ``launch`` creates a fresh search immediately
-before choosing the requested candidate index.
+in that backend's memory; copy the exact search and candidate IDs from
+``discover`` into ``launch`` before its ten-minute expiration.
 """
 
 from __future__ import annotations
@@ -42,8 +42,8 @@ def _positive_float(value: str) -> float:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Search public web results for nearby infusion centers, then call "
-            "one explicitly selected candidate."
+            "Search public web results for nearby infusion centers, then start "
+            "a demo call using one selected center as private agent context."
         ),
     )
     parser.add_argument("--backend-url", default=DEFAULT_BACKEND_URL)
@@ -54,21 +54,16 @@ def _parser() -> argparse.ArgumentParser:
 
     launch = commands.add_parser(
         "launch",
-        help="search again, select one displayed candidate, and create a call",
+        help="confirm one candidate from a prior displayed search and create a demo call",
     )
-    launch.add_argument("--zip", dest="zip_code", default=DEFAULT_ZIP_CODE)
-    launch.add_argument(
-        "--candidate",
-        type=int,
-        required=True,
-        help="one-based position from the current search results",
-    )
+    launch.add_argument("--search-id", required=True)
+    launch.add_argument("--candidate-id", required=True)
     launch.add_argument("--case-id", default="case-002")
     launch.add_argument("--poll-interval", type=_positive_float, default=1.0)
     launch.add_argument(
         "--confirm",
         action="store_true",
-        help="required acknowledgement before this command asks the backend to dial",
+        help="required acknowledgement before this command asks the backend to demo dial",
     )
     return parser
 
@@ -93,10 +88,12 @@ def _print_candidates(search: dict[str, Any]) -> None:
         print("No callable infusion-center candidates were found for this ZIP.")
         return
     print(f"Candidates for ZIP {search['zip_code']} (Tavily relevance order):")
+    print(f"search_id: {search['search_id']}")
     for index, candidate in enumerate(candidates, start=1):
         print(
             f"{index}. {candidate['name']} — {candidate['phone_e164']}\n"
-            f"   {candidate['source_url']}",
+            f"   source: {candidate['source_url']}\n"
+            f"   candidate_id: {candidate['candidate_id']}",
             flush=True,
         )
 
@@ -113,23 +110,31 @@ async def _launch(args: argparse.Namespace) -> CallStatusResponse:
     async with httpx.AsyncClient(
         base_url=args.backend_url.rstrip("/"), timeout=15.0
     ) as client:
-        search = await _search(client, zip_code=args.zip_code)
-        candidates = search["candidates"]
-        candidate_index = args.candidate - 1
-        if candidate_index < 0 or candidate_index >= len(candidates):
-            raise RuntimeError(
-                f"candidate must be between 1 and {len(candidates)} for this search"
-            )
-        candidate = candidates[candidate_index]
+        snapshot_response = await client.get(f"/facility-searches/{args.search_id}")
+        if snapshot_response.status_code != 200:
+            raise RuntimeError(_request_error(snapshot_response))
+        snapshot = _response_json(snapshot_response)
+        if not isinstance(snapshot, dict) or not isinstance(snapshot.get("candidates"), list):
+            raise RuntimeError("backend returned an invalid facility-search response")
+        candidate = next(
+            (
+                item
+                for item in snapshot["candidates"]
+                if item.get("candidate_id") == args.candidate_id
+            ),
+            None,
+        )
+        if not isinstance(candidate, dict):
+            raise RuntimeError("candidate_id was not returned by this facility search")
         print(
-            f"Selected {candidate['name']} at {candidate['phone_e164']}. "
-            "Creating the confirmed outbound call...",
+            f"Selected {candidate['name']} for private agent context. "
+            "Creating the configured demo call...",
             flush=True,
         )
         response = await client.post(
-            f"/facility-searches/{search['search_id']}/calls",
+            f"/facility-searches/{args.search_id}/demo-calls",
             json={
-                "candidate_id": candidate["candidate_id"],
+                "candidate_id": args.candidate_id,
                 "case_id": args.case_id,
                 "confirm_destination": True,
             },

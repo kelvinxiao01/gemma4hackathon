@@ -9,12 +9,17 @@ import time
 import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from ipaddress import ip_address
 from typing import Any, Protocol
 from urllib.parse import urlparse
 
+from .models import is_us_e164
+
 MAX_FACILITY_CANDIDATES = 3
+MAX_SOURCE_URL_LENGTH = 2_048
 TAVILY_TIMEOUT_SECONDS = 6.0
 FACILITY_SEARCH_TTL_SECONDS = 10 * 60
+HACKATHON_ZIP_CODE = "10001"
 
 
 class FacilityDiscoveryError(RuntimeError):
@@ -35,7 +40,7 @@ class FacilityCandidateNotFoundError(LookupError):
 
 class FacilityDiscovery(Protocol):
     async def search(self, *, zip_code: str) -> list[FacilityCandidate]:
-        """Return locally relevant, callable facility candidates for one ZIP."""
+        """Return public, locally relevant candidates for one ZIP."""
 
 
 class _TavilyClient(Protocol):
@@ -46,7 +51,13 @@ class _TavilyClient(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class FacilityCandidate:
-    """Minimal public data that a human can inspect before authorizing a call."""
+    """Public data a human must inspect before authorizing a call.
+
+    The phone number is deterministically extracted from Tavily's public result
+    text. It is source-backed, not independently verified as the facility's
+    current direct line; the source URL and explicit confirmation are therefore
+    mandatory before any call can be launched.
+    """
 
     name: str
     phone_e164: str
@@ -56,11 +67,21 @@ class FacilityCandidate:
         name = self.name.strip()
         if not name or len(name) > 240:
             raise ValueError("facility candidate name is invalid")
-        if not _is_us_e164(self.phone_e164):
+        if not is_us_e164(self.phone_e164):
             raise ValueError("facility candidate phone is invalid")
-        if not _is_public_url(self.source_url):
+        if len(self.source_url) > MAX_SOURCE_URL_LENGTH or not _is_public_url(
+            self.source_url
+        ):
             raise ValueError("facility candidate source URL is invalid")
         object.__setattr__(self, "name", name)
+
+
+@dataclass(frozen=True, slots=True)
+class FacilitySearchCandidate:
+    """A candidate paired with the opaque selection ID it was returned under."""
+
+    candidate_id: str
+    candidate: FacilityCandidate
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,7 +90,7 @@ class FacilitySearch:
 
     search_id: str
     zip_code: str
-    candidates: tuple[tuple[str, FacilityCandidate], ...]
+    candidates: tuple[FacilitySearchCandidate, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,7 +113,7 @@ class UnavailableFacilityDiscovery:
 
 
 class TavilyFacilityDiscovery:
-    """One bounded Tavily request that contains only a validated ZIP code."""
+    """One bounded Tavily request that contains only the fixed public ZIP."""
 
     is_ready = True
     readiness_mode = "tavily"
@@ -117,8 +138,8 @@ class TavilyFacilityDiscovery:
         query = build_facility_query(zip_code=zip_code)
         client = self._client_factory(self._api_key)
         try:
-            # This is deliberately one basic search: no retry/fan-out and no
-            # request receives case, patient, or caller-supplied free text.
+            # This is deliberately one basic search: no retry or fan-out, and
+            # the request receives no case, patient, or caller-supplied text.
             response = await asyncio.wait_for(
                 client.search(
                     query=query,
@@ -175,7 +196,13 @@ class FacilitySearchService:
         search = FacilitySearch(
             search_id=search_id,
             zip_code=zip_code,
-            candidates=tuple((str(uuid.uuid4()), candidate) for candidate in selected),
+            candidates=tuple(
+                FacilitySearchCandidate(
+                    candidate_id=str(uuid.uuid4()),
+                    candidate=candidate,
+                )
+                for candidate in selected
+            ),
         )
         async with self._lock:
             self._prune_expired_locked()
@@ -196,10 +223,20 @@ class FacilitySearchService:
             stored = self._searches.get(search_id)
             if stored is None:
                 raise FacilitySearchNotFoundError("facility search is unavailable")
-            for stored_id, candidate in stored.search.candidates:
-                if stored_id == candidate_id:
-                    return candidate
+            for item in stored.search.candidates:
+                if item.candidate_id == candidate_id:
+                    return item.candidate
         raise FacilityCandidateNotFoundError("facility candidate is unavailable")
+
+    async def snapshot(self, *, search_id: str) -> FacilitySearch:
+        """Return the exact still-live selection a caller is about to confirm."""
+
+        async with self._lock:
+            self._prune_expired_locked()
+            stored = self._searches.get(search_id)
+            if stored is None:
+                raise FacilitySearchNotFoundError("facility search is unavailable")
+            return stored.search
 
     def health(self) -> dict[str, object]:
         return {
@@ -221,14 +258,11 @@ class FacilitySearchService:
 def build_facility_query(*, zip_code: str) -> str:
     """Build a fixed, location-only search query with no private context."""
 
-    if not _is_us_zip_code(zip_code):
+    if zip_code != HACKATHON_ZIP_CODE:
         raise FacilityDiscoveryError(
-            "facility discovery needs a five-digit US ZIP code"
+            f"facility discovery is limited to ZIP {HACKATHON_ZIP_CODE}"
         )
-    # `10001` is the current hackathon destination. The city/state terms make
-    # search intent unambiguous without deriving anything from a patient case.
-    city_state = "New York NY" if zip_code == "10001" else "United States"
-    return f"infusion centers near {zip_code} {city_state} official phone number"
+    return f"infusion centers near {zip_code} New York NY official phone number"
 
 
 def _candidates_from_tavily_results(
@@ -245,9 +279,11 @@ def _candidates_from_tavily_results(
         source_url = result.get("url")
         if not isinstance(name, str) or not isinstance(source_url, str):
             continue
-        if not _is_public_url(source_url):
+        if (
+            "infusion" not in name.casefold() or not _is_public_url(source_url)
+        ):
             continue
-        phone = _first_us_phone(
+        phone = _published_us_phone(
             _searchable_result_text(result.get("content"), result.get("raw_content"))
         )
         if phone is None or phone in seen_numbers:
@@ -282,41 +318,57 @@ def _bounded_unique_candidates(
 
 def _searchable_result_text(*values: object) -> str:
     # Tavily raw content can be large. It is scanned transiently and never
-    # returned or stored; cap it anyway so a malformed result cannot dominate
-    # a local request.
+    # returned or stored; cap it so malformed public content cannot dominate a
+    # local request.
     pieces = [value[:16_000] for value in values if isinstance(value, str)]
     return "\n".join(pieces)
 
 
-_PHONE_PATTERN = re.compile(
-    r"(?<!\d)(?:\+?1[.\-\s()]*)?([2-9]\d{2})[.\-\s()]*([2-9]\d{2})[.\-\s]*([0-9]{4})(?!\d)"
+_PHONE_VALUE_PATTERN = (
+    r"(?:\+?1[.\-\s()]*)?\(?([2-9]\d{2})\)?[.\-\s]*"
+    r"([2-9]\d{2})[.\-\s]*([0-9]{4})"
+)
+_PUBLISHED_PHONE_PATTERN = re.compile(
+    rf"(?:phone(?:\s+number)?|telephone|tel|call(?:\s+us)?)\s*[:\-–]?\s*"
+    rf"{_PHONE_VALUE_PATTERN}",
+    re.IGNORECASE,
 )
 
 
-def _first_us_phone(text: str) -> str | None:
-    match = _PHONE_PATTERN.search(text)
+def _published_us_phone(text: str) -> str | None:
+    """Extract a number only when the public source explicitly labels it."""
+
+    match = _PUBLISHED_PHONE_PATTERN.search(text)
     if match is None:
         return None
     phone = "+1" + "".join(match.groups())
-    return phone if _is_us_e164(phone) else None
-
-
-def _is_us_e164(value: str) -> bool:
-    return (
-        len(value) == 12
-        and value.startswith("+1")
-        and value[2:].isdigit()
-        and value[2] in "23456789"
-    )
-
-
-def _is_us_zip_code(value: str) -> bool:
-    return len(value) == 5 and value.isdigit()
+    return phone if is_us_e164(phone) else None
 
 
 def _is_public_url(value: str) -> bool:
-    parsed = urlparse(value)
-    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+    try:
+        parsed = urlparse(value)
+        parsed.port
+    except ValueError:
+        return False
+    host = parsed.hostname
+    if (
+        parsed.scheme != "https"
+        or not host
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.port not in {None, 443}
+    ):
+        return False
+    normalized_host = host.rstrip(".").lower()
+    if normalized_host == "localhost" or normalized_host.endswith(".localhost"):
+        return False
+    try:
+        return ip_address(normalized_host).is_global
+    except ValueError:
+        # A DNS hostname may later resolve differently, but we never fetch it;
+        # reject only clearly local hostname suffixes here.
+        return not normalized_host.endswith((".local", ".internal", ".test"))
 
 
 async def _close_client(client: _TavilyClient) -> None:

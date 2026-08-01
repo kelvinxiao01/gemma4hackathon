@@ -101,7 +101,7 @@ Launch one synthetic demo call after the backend and worker report ready:
 curl --request POST http://127.0.0.1:8000/calls \
   --header 'content-type: application/json' \
   --data '{
-    "to_phone_number": "+12125550123",
+    "to_phone_number": "+13478868173",
     "patient_id": "case-002",
     "payer": "aetna",
     "plan_type": "commercial",
@@ -149,6 +149,7 @@ Backend requires:
 
 - `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`
 - `TAVILY_API_KEY` for the location-only infusion-center discovery endpoint
+- `DEMO_OUTBOUND_PHONE_NUMBER` for the facility-selection demo call
 - optionally `PAYER_CRITERIA_DB_PATH` when the teammate-owned SQLite database
   and its schema are available.
 
@@ -158,12 +159,14 @@ repository result makes the worker use restricted Tavily search instead.
 
 ## Infusion-center discovery
 
-The backend also supports a separate, explicit discovery-to-dial flow for the
-hackathon's ZIP `10001`: Tavily returns up to three callable public candidates,
-the user selects one, and a `confirm_destination` flag is required before the
-normal LiveKit/Twilio call flow begins. The discovery query contains only the
-ZIP; it never includes synthetic case or patient context. See the
-[backend runbook](be/README.md#find-and-call-an-infusion-center-near-zip-10001)
+The backend also supports a separate facility-selection demo for the
+hackathon's fixed ZIP `10001`: Tavily returns up to three public candidates,
+the user selects an exact cached candidate, and a `confirm_destination` flag
+is required before a LiveKit/Twilio call to the configured verified demo number
+begins. The selected facility is private agent context only; it is never
+dialed. The discovery query contains only the ZIP; it never includes synthetic
+case or patient context. See the
+[backend runbook](be/README.md#find-an-infusion-center-near-zip-10001-and-run-the-demo-call)
 for the `discover` and `launch --confirm` commands.
 
 ## Twilio + LiveKit setup

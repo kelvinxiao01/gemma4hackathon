@@ -25,8 +25,10 @@ from .criteria import (
 from .facilities import (
     FacilityCandidateNotFoundError,
     FacilityDiscoveryUnavailableError,
+    FacilitySearch,
     FacilitySearchNotFoundError,
     FacilitySearchService,
+    HACKATHON_ZIP_CODE,
     TavilyFacilityDiscovery,
     UnavailableFacilityDiscovery,
 )
@@ -43,6 +45,7 @@ from .models import (
     FacilitySearchResponse,
     InternalContextResponse,
     RecipientKind,
+    validate_us_e164,
 )
 from .synthetic_cases import SyntheticCaseError, SyntheticCasePatientSource
 
@@ -60,6 +63,9 @@ class CallingServices:
     # The normal backend leaves this unset.  The synthetic local-demo harness
     # sets one destination so it cannot be repurposed to dial arbitrary numbers.
     allowed_destination: str | None = None
+    # A facility selection is presentation/context only in this hackathon.
+    # Facility demo calls always route to this verified demo destination.
+    demo_destination: str | None = None
 
 
 def build_calling_services() -> CallingServices:
@@ -77,6 +83,18 @@ def build_calling_services() -> CallingServices:
         ),
     )
     case_source = SyntheticCasePatientSource()
+    configured_demo_destination = (os.getenv("DEMO_OUTBOUND_PHONE_NUMBER") or "").strip()
+    try:
+        demo_destination = (
+            validate_us_e164(
+                configured_demo_destination,
+                field_name="DEMO_OUTBOUND_PHONE_NUMBER",
+            )
+            if configured_demo_destination
+            else None
+        )
+    except ValueError:
+        demo_destination = None
     tavily_key = (os.getenv("TAVILY_API_KEY") or "").strip()
     facility_discovery = (
         TavilyFacilityDiscovery(api_key=tavily_key)
@@ -97,6 +115,7 @@ def build_calling_services() -> CallingServices:
         criteria_repository=criteria_repository,
         facility_searches=FacilitySearchService(discovery=facility_discovery),
         case_source=case_source,
+        demo_destination=demo_destination,
     )
 
 
@@ -185,6 +204,11 @@ async def create_facility_search(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="facility discovery is not configured",
         )
+    if search.zip_code != HACKATHON_ZIP_CODE:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"facility discovery is limited to ZIP {HACKATHON_ZIP_CODE}",
+        )
     try:
         result = await services.facility_searches.search(zip_code=search.zip_code)
     except FacilityDiscoveryUnavailableError as exc:
@@ -192,23 +216,33 @@ async def create_facility_search(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="facility discovery is unavailable",
         ) from exc
-    return FacilitySearchResponse(
-        search_id=result.search_id,
-        zip_code=result.zip_code,
-        candidates=[
-            FacilityCandidateResponse(
-                candidate_id=candidate_id,
-                name=candidate.name,
-                phone_e164=candidate.phone_e164,
-                source_url=candidate.source_url,
-            )
-            for candidate_id, candidate in result.candidates
-        ],
-    )
+    return _facility_search_response(result)
+
+
+@router.get("/facility-searches/{search_id}", response_model=FacilitySearchResponse)
+async def get_facility_search(
+    search_id: str,
+    services: CallingServices = Depends(get_calling_services),
+) -> FacilitySearchResponse:
+    """Show the exact candidate snapshot a user must select before dialing."""
+
+    if services.facility_searches is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="facility discovery is not configured",
+        )
+    try:
+        result = await services.facility_searches.snapshot(search_id=search_id)
+    except FacilitySearchNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="facility search is unavailable",
+        ) from exc
+    return _facility_search_response(result)
 
 
 @router.post(
-    "/facility-searches/{search_id}/calls",
+    "/facility-searches/{search_id}/demo-calls",
     response_model=CallAccepted,
     status_code=status.HTTP_202_ACCEPTED,
 )
@@ -218,12 +252,16 @@ async def create_confirmed_facility_call(
     request: Request,
     services: CallingServices = Depends(get_calling_services),
 ) -> CallAccepted:
-    """Dispatch only a candidate the caller explicitly selected and confirmed."""
+    """Demo-call a configured test number using a selected center as context."""
 
-    if services.facility_searches is None or services.case_source is None:
+    if (
+        services.facility_searches is None
+        or services.case_source is None
+        or services.demo_destination is None
+    ):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="facility calling is not configured",
+            detail="facility demo calling is not configured",
         )
     try:
         candidate = await services.facility_searches.selected_candidate(
@@ -237,7 +275,7 @@ async def create_confirmed_facility_call(
         ) from exc
     if (
         services.allowed_destination is not None
-        and candidate.phone_e164 != services.allowed_destination
+        and services.demo_destination != services.allowed_destination
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -245,7 +283,7 @@ async def create_confirmed_facility_call(
         )
     try:
         call = services.case_source.build_call_request(
-            to_phone_number=candidate.phone_e164,
+            to_phone_number=services.demo_destination,
             case_id=selection.case_id,
         )
     except SyntheticCaseError as exc:
@@ -345,3 +383,19 @@ async def post_agent_event(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="invalid call state transition"
         ) from exc
+
+
+def _facility_search_response(result: FacilitySearch) -> FacilitySearchResponse:
+    return FacilitySearchResponse(
+        search_id=result.search_id,
+        zip_code=result.zip_code,
+        candidates=[
+            FacilityCandidateResponse(
+                candidate_id=item.candidate_id,
+                name=item.candidate.name,
+                phone_e164=item.candidate.phone_e164,
+                source_url=item.candidate.source_url,
+            )
+            for item in result.candidates
+        ],
+    )

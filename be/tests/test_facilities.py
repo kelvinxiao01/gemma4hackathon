@@ -44,17 +44,17 @@ class FakeFacilityDiscovery:
             FacilityCandidate(
                 name="Chelsea Infusion Center",
                 phone_e164="+12125550123",
-                source_url="https://example.test/chelsea-infusion",
+                source_url="https://vivoinfusion.com/locations/chelsea-infusion",
             ),
             FacilityCandidate(
                 name="Midtown Infusion Center",
                 phone_e164="+12125550124",
-                source_url="https://example.test/midtown-infusion",
+                source_url="https://ivxhealth.com/locations/midtown-infusion",
             ),
             FacilityCandidate(
                 name="Hudson Infusion Center",
                 phone_e164="+12125550125",
-                source_url="https://example.test/hudson-infusion",
+                source_url="https://thrivewellinfusion.com/locations/hudson-infusion",
             ),
         ]
 
@@ -75,6 +75,7 @@ def _services() -> tuple[CallingServices, FakeDispatcher, FakeFacilityDiscovery]
             criteria_repository=UnavailableCriteriaRepository(),
             facility_searches=FacilitySearchService(discovery=discovery),
             case_source=case_source,
+            demo_destination="+13478868173",
         ),
         dispatcher,
         discovery,
@@ -102,7 +103,7 @@ def test_searching_10001_returns_three_safe_candidates_without_case_context() ->
         "candidate_id": payload["candidates"][0]["candidate_id"],
         "name": "Chelsea Infusion Center",
         "phone_e164": "+12125550123",
-        "source_url": "https://example.test/chelsea-infusion",
+        "source_url": "https://vivoinfusion.com/locations/chelsea-infusion",
     }
     assert "case-002" not in response.text
     assert "synthetic" not in response.text.lower()
@@ -118,7 +119,28 @@ def test_facility_search_rejects_non_us_zip_codes_before_calling_tavily() -> Non
     assert discovery.calls == []
 
 
-def test_confirmed_candidate_call_derives_case_fields_and_never_leaks_phone_to_metadata() -> (
+def test_facility_search_is_limited_to_the_configured_10001_demo_area() -> None:
+    services, _, discovery = _services()
+
+    with _client(services) as client:
+        response = client.post("/facility-searches", json={"zip_code": "10002"})
+
+    assert response.status_code == 422
+    assert discovery.calls == []
+
+
+def test_discovery_snapshot_can_be_read_before_confirming_its_exact_candidate() -> None:
+    services, _, _ = _services()
+
+    with _client(services) as client:
+        created = client.post("/facility-searches", json={"zip_code": "10001"})
+        snapshot = client.get(f"/facility-searches/{created.json()['search_id']}")
+
+    assert snapshot.status_code == 200
+    assert snapshot.json() == created.json()
+
+
+def test_selected_candidate_starts_a_demo_call_and_never_leaks_phone_to_metadata() -> (
     None
 ):
     services, dispatcher, _ = _services()
@@ -127,7 +149,7 @@ def test_confirmed_candidate_call_derives_case_fields_and_never_leaks_phone_to_m
         discovery = client.post("/facility-searches", json={"zip_code": "10001"})
         candidate_id = discovery.json()["candidates"][0]["candidate_id"]
         refused = client.post(
-            f"/facility-searches/{discovery.json()['search_id']}/calls",
+            f"/facility-searches/{discovery.json()['search_id']}/demo-calls",
             json={
                 "candidate_id": candidate_id,
                 "case_id": "case-002",
@@ -135,7 +157,7 @@ def test_confirmed_candidate_call_derives_case_fields_and_never_leaks_phone_to_m
             },
         )
         accepted = client.post(
-            f"/facility-searches/{discovery.json()['search_id']}/calls",
+            f"/facility-searches/{discovery.json()['search_id']}/demo-calls",
             json={
                 "candidate_id": candidate_id,
                 "case_id": "case-002",
@@ -152,10 +174,12 @@ def test_confirmed_candidate_call_derives_case_fields_and_never_leaks_phone_to_m
     metadata = json.loads(dispatcher.requests[0].metadata)
     assert set(metadata) == {"call_id", "token"}
     assert "+12125550123" not in json.dumps(metadata)
+    assert "+13478868173" not in json.dumps(metadata)
     assert "Chelsea Infusion Center" not in json.dumps(metadata)
     context = asyncio.run(
         services.coordinator.internal_context(call_id, metadata["token"])
     )
+    assert context.to_phone_number == "+13478868173"
     assert context.recipient.model_dump() == {
         "kind": "infusion-center",
         "name": "Chelsea Infusion Center",
@@ -168,7 +192,7 @@ def test_unknown_candidate_cannot_be_confirmed_as_a_call_destination() -> None:
     with _client(services) as client:
         discovery = client.post("/facility-searches", json={"zip_code": "10001"})
         response = client.post(
-            f"/facility-searches/{discovery.json()['search_id']}/calls",
+            f"/facility-searches/{discovery.json()['search_id']}/demo-calls",
             json={
                 "candidate_id": "not-returned-by-this-search",
                 "case_id": "case-002",
@@ -177,6 +201,25 @@ def test_unknown_candidate_cannot_be_confirmed_as_a_call_destination() -> None:
         )
 
     assert response.status_code == 404
+    assert dispatcher.requests == []
+
+
+def test_selected_center_is_never_dialed_when_demo_destination_is_missing() -> None:
+    services, dispatcher, _ = _services()
+    services.demo_destination = None
+
+    with _client(services) as client:
+        discovery = client.post("/facility-searches", json={"zip_code": "10001"})
+        response = client.post(
+            f"/facility-searches/{discovery.json()['search_id']}/demo-calls",
+            json={
+                "candidate_id": discovery.json()["candidates"][0]["candidate_id"],
+                "case_id": "case-002",
+                "confirm_destination": True,
+            },
+        )
+
+    assert response.status_code == 503
     assert dispatcher.requests == []
 
 
@@ -193,13 +236,28 @@ def test_tavily_query_is_fixed_to_the_zip_and_returns_only_valid_phone_candidate
                 "results": [
                     {
                         "title": "Chelsea Infusion Center",
-                        "url": "https://example.test/chelsea",
+                        "url": "https://public-directory.example/chelsea",
                         "content": "Call (212) 555-0123 to schedule an infusion.",
                     },
                     {
-                        "title": "Not a callable result",
-                        "url": "https://example.test/no-phone",
-                        "content": "No phone number is published here.",
+                        "title": "Unrelated Clinic",
+                        "url": "https://untrusted.example/clinic",
+                        "content": "Call (212) 555-0999 for an appointment.",
+                    },
+                    {
+                        "title": "Unlabelled Infusion Center",
+                        "url": "https://ivxhealth.com/locations/unlabelled",
+                        "content": "For scheduling, use (212) 555-0888.",
+                    },
+                    {
+                        "title": "Loopback Infusion Center",
+                        "url": "https://127.0.0.1/local-only",
+                        "content": "Phone: (212) 555-0777",
+                    },
+                    {
+                        "title": "Oversized Source Infusion Center",
+                        "url": "https://example.com/" + "x" * 2_100,
+                        "content": "Phone: (212) 555-0666",
                     },
                 ]
             }
@@ -226,6 +284,6 @@ def test_tavily_query_is_fixed_to_the_zip_and_returns_only_valid_phone_candidate
         FacilityCandidate(
             name="Chelsea Infusion Center",
             phone_e164="+12125550123",
-            source_url="https://example.test/chelsea",
+            source_url="https://public-directory.example/chelsea",
         )
     ]
