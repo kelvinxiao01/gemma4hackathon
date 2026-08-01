@@ -70,6 +70,18 @@ SIP_PARTICIPANT_PREFIX = "coverage-sip-"
 COMPLETION_OUTCOMES = {"completed", "partial", "declined"}
 
 
+def _failure_log_fields(
+    *, call_id: str, stage: str, exc: BaseException
+) -> dict[str, str]:
+    """Return non-sensitive fields for an unexpected workflow failure."""
+
+    return {
+        "call_id": call_id,
+        "stage": stage,
+        "error_type": type(exc).__name__,
+    }
+
+
 class _AMDTranscriptLogFilter(logging.Filter):
     """Suppress the AMD detector's one transcript-bearing log record.
 
@@ -442,6 +454,26 @@ def create_voice_pipeline() -> tuple[AgentSession, Any, Any]:
     return session, llm, stt
 
 
+async def _connect_and_start_session(
+    *,
+    ctx: JobContext,
+    session: AgentSession,
+    agent: Agent,
+    room_options: room_io.RoomOptions,
+) -> None:
+    """Join the job room before RoomIO initializes its audio participants."""
+
+    await ctx.connect()
+    await session.start(
+        agent=agent,
+        room=ctx.room,
+        room_options=room_options,
+        # LiveKit Cloud observability keeps the transcript only. No audio,
+        # traces, or runtime logs are uploaded for this session.
+        record={"audio": False, "transcript": True, "traces": False, "logs": False},
+    )
+
+
 server = AgentServer()
 
 
@@ -505,12 +537,15 @@ async def my_agent(ctx: JobContext) -> None:
     )
     participant_identity = f"{SIP_PARTICIPANT_PREFIX}{metadata.call_id}"
 
+    stage = "create-voice-pipeline"
     try:
         session, llm, stt = create_voice_pipeline()
         agent = CoverageAgent(runtime)
-        await session.start(
+        stage = "connect-and-start-agent-session"
+        await _connect_and_start_session(
+            ctx=ctx,
+            session=session,
             agent=agent,
-            room=ctx.room,
             room_options=room_io.RoomOptions(
                 participant_identity=participant_identity,
                 delete_room_on_close=True,
@@ -520,18 +555,13 @@ async def my_agent(ctx: JobContext) -> None:
                     ),
                 ),
             ),
-            # LiveKit Cloud observability keeps the transcript only. No audio,
-            # traces, or runtime logs are uploaded for this session.
-            record={"audio": False, "transcript": True, "traces": False, "logs": False},
         )
-        # AgentSession starts its RoomIO connection, and JobContext.connect is
-        # idempotent. Await it explicitly before making the SIP API call so the
-        # worker is joined to the room before it creates the remote participant.
-        await ctx.connect()
+        stage = "report-dialing"
         await callbacks.report_event(metadata.call_id, status="dialing")
 
         # AMD must begin before the participant is created. It pauses agent
         # speech, so CoverageAgent cannot speak over a greeting or voicemail.
+        stage = "run-amd-and-dial"
         with _suppress_amd_transcript_logs():
             async with AMD(
                 session,
@@ -576,6 +606,7 @@ async def my_agent(ctx: JobContext) -> None:
 
         # Human and uncertain classifications proceed. This is the first place
         # the agent is allowed to generate speech.
+        stage = "activate-conversation"
         await callbacks.report_event(metadata.call_id, status="active")
         await runtime.ensure_public_fallback()
         session.generate_reply(
@@ -596,16 +627,35 @@ async def my_agent(ctx: JobContext) -> None:
             status="failed",
             outcome=outcome_for_sip_call_error(exc),
         )
-    except Exception:
-        # Provider exceptions can include a SIP destination. Keep worker logs
-        # keyed only by the opaque call ID.
-        logger.warning("outbound call failed", extra={"call_id": metadata.call_id})
+    except api.ServerError as exc:
+        # LiveKit uses deadline_exceeded when wait_until_answered reaches its
+        # answer window without a SIP status response. It carries no provider
+        # details into the public status.
+        logger.warning("outbound SIP request failed", extra={"call_id": metadata.call_id})
         await _delete_room_then_report_terminal(
             ctx,
             callbacks,
             metadata.call_id,
             status="failed",
-            outcome="carrier-error",
+            outcome=outcome_for_sip_server_error(exc),
+        )
+    except Exception as exc:
+        # Provider exceptions can include a SIP destination. Keep worker logs
+        # keyed only by opaque server-generated fields.
+        logger.warning(
+            "outbound call failed",
+            extra=_failure_log_fields(
+                call_id=metadata.call_id,
+                stage=stage,
+                exc=exc,
+            ),
+        )
+        await _delete_room_then_report_terminal(
+            ctx,
+            callbacks,
+            metadata.call_id,
+            status="failed",
+            outcome=outcome_for_unexpected_workflow_error(exc),
         )
 
 
@@ -626,6 +676,20 @@ def outcome_for_sip_call_error(error: api.SipCallError) -> str:
     if error.sip_status_code in {480, 486}:
         return "unavailable"
     return "carrier-error"
+
+
+def outcome_for_sip_server_error(error: api.ServerError) -> str:
+    """Map a non-SIP LiveKit dial failure to a public terminal outcome."""
+
+    if error.code == api.ServerErrorCode.DEADLINE_EXCEEDED:
+        return "no-answer"
+    return "carrier-error"
+
+
+def outcome_for_unexpected_workflow_error(_error: BaseException) -> str:
+    """Keep model and agent failures distinct from explicit SIP failures."""
+
+    return "agent-error"
 
 
 async def _delete_room_then_report_terminal(

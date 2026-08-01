@@ -32,8 +32,11 @@ Install and run after the backend is listening:
 
 ```bash
 uv sync
-uv run python src/agent.py dev
+lk agent dev src/agent.py
 ```
+
+Run this command from the `voice/` directory so the worker loads
+`voice/.env.local`. Do not start it from `voice/src/`.
 
 `console` mode is intentionally unsupported: this is an outbound-only worker.
 

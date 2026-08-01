@@ -50,6 +50,72 @@ def test_dispatch_metadata_allows_only_call_capability() -> None:
         )
 
 
+def test_failure_log_fields_exclude_exception_message() -> None:
+    from agent import _failure_log_fields
+
+    fields = _failure_log_fields(
+        call_id="call-123",
+        stage="start-agent-session",
+        exc=RuntimeError("provider response contained sensitive details"),
+    )
+
+    assert fields == {
+        "call_id": "call-123",
+        "stage": "start-agent-session",
+        "error_type": "RuntimeError",
+    }
+    assert "sensitive" not in repr(fields)
+
+
+def test_unexpected_workflow_failure_is_not_reported_as_a_carrier_error() -> None:
+    from agent import outcome_for_unexpected_workflow_error
+
+    assert (
+        outcome_for_unexpected_workflow_error(
+            RuntimeError("provider details must not reach public call status")
+        )
+        == "agent-error"
+    )
+
+
+@pytest.mark.asyncio
+async def test_room_connection_precedes_agent_session_start() -> None:
+    from agent import _connect_and_start_session
+
+    timeline: list[object] = []
+
+    class FakeContext:
+        room = object()
+
+        async def connect(self) -> None:
+            timeline.append("connected")
+
+    class FakeSession:
+        async def start(self, **kwargs: object) -> None:
+            timeline.append(("started", kwargs))
+
+    await _connect_and_start_session(
+        ctx=FakeContext(),  # type: ignore[arg-type]
+        session=FakeSession(),  # type: ignore[arg-type]
+        agent=object(),  # type: ignore[arg-type]
+        room_options="room-options",  # type: ignore[arg-type]
+    )
+
+    assert timeline[0] == "connected"
+    start_event = timeline[1]
+    assert isinstance(start_event, tuple)
+    event_name, start_kwargs = start_event
+    assert event_name == "started"
+    assert isinstance(start_kwargs, dict)
+    assert start_kwargs["room_options"] == "room-options"
+    assert start_kwargs["record"] == {
+        "audio": False,
+        "transcript": True,
+        "traces": False,
+        "logs": False,
+    }
+
+
 def test_context_retains_only_allowed_patient_sections() -> None:
     context = OutboundCallContext.from_payload(
         {
@@ -411,6 +477,30 @@ def test_sip_failures_have_precise_sanitized_outcomes(
     )
 
     assert outcome_for_sip_call_error(error) == outcome
+
+
+@pytest.mark.parametrize(
+    ("code", "outcome"),
+    [
+        ("deadline_exceeded", "no-answer"),
+        ("internal", "carrier-error"),
+    ],
+)
+def test_sip_server_failures_keep_no_answer_distinct(
+    code: str,
+    outcome: str,
+) -> None:
+    from livekit import api
+
+    from agent import outcome_for_sip_server_error
+
+    error = api.ServerError(
+        code,
+        "provider details must not leave the worker",
+        status=500,
+    )
+
+    assert outcome_for_sip_server_error(error) == outcome
 
 
 def test_amd_log_filter_blocks_only_transcript_bearing_amd_records() -> None:
