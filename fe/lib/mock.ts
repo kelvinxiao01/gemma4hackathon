@@ -262,12 +262,23 @@ function grade(criteria: Criterion[]): { score: number; band: Band } {
   const score = Math.round(pool(required, 80) + pool(supporting, 20));
   const anyContradicted = required.some((c) => c.status === "NOT_MET");
   const allMet = required.every((c) => c.status === "MET");
+  // A record where nothing required could be determined either way is
+  // undocumented, not contradicted, so the score floor does not apply. Closing
+  // it on points alone would be an adverse determination with no human in it,
+  // which is the thing the Submit gate exists to prevent.
+  const nothingDetermined = !required.some(
+    (c) => c.status === "MET" || c.status === "NOT_MET",
+  );
   const band: Band =
-    anyContradicted || score < 60
+    anyContradicted
       ? "NOT_QUALIFIED"
-      : score >= 85 && allMet
-        ? "QUALIFIES"
-        : "NEEDS_REVIEW";
+      : nothingDetermined
+        ? "NEEDS_REVIEW"
+        : score < 60
+          ? "NOT_QUALIFIED"
+          : score >= 85 && allMet
+            ? "QUALIFIES"
+            : "NEEDS_REVIEW";
   return { score, band };
 }
 
@@ -620,7 +631,7 @@ function seed(): PatientDetail[] {
 
   const patients: PatientDetail[] = [
     {
-      id: "dana-ortiz",
+      id: "pt-dana",
       name: "Dana Ortiz",
       ...payerOf(UHC_DOC),
       ...USTEKINUMAB,
@@ -666,7 +677,7 @@ function seed(): PatientDetail[] {
       }),
     },
     {
-      id: "marcus-webb",
+      id: "pt-marcus",
       name: "Marcus Webb",
       ...payerOf(UHC_DOC),
       ...USTEKINUMAB,
@@ -712,7 +723,7 @@ function seed(): PatientDetail[] {
       }),
     },
     {
-      id: "ravi-patel",
+      id: "pt-ravi",
       name: "Ravi Patel",
       ...payerOf(UHC_DOC),
       ...USTEKINUMAB,
@@ -726,7 +737,7 @@ function seed(): PatientDetail[] {
         decided_at: ago(18),
       },
       appointment: null,
-      evidence_id: "ev-ravi-patel",
+      evidence_id: "ev-pt-ravi",
       created_at: ago(258),
       decided_at: ago(18),
       booked_at: null,
@@ -766,7 +777,7 @@ function seed(): PatientDetail[] {
       }),
     },
     completed({
-      id: "elena-park",
+      id: "pt-elena",
       name: "Elena Park",
       doc: UHC_DOC,
       criteria: elenaCriteria,
@@ -795,7 +806,7 @@ function seed(): PatientDetail[] {
       },
     }),
     completed({
-      id: "tomas-rivera",
+      id: "pt-tomas",
       name: "Tomas Rivera",
       doc: UHC_DOC,
       criteria: tomasCriteria,
@@ -824,7 +835,7 @@ function seed(): PatientDetail[] {
       },
     }),
     completed({
-      id: "june-okafor",
+      id: "pt-june",
       name: "June Okafor",
       doc: ANTHEM_DOC,
       criteria: juneCriteria,
@@ -853,7 +864,7 @@ function seed(): PatientDetail[] {
       },
     }),
     completed({
-      id: "victor-hale",
+      id: "pt-victor",
       name: "Victor Hale",
       doc: UHC_DOC,
       criteria: victorCriteria,
@@ -878,7 +889,7 @@ function seed(): PatientDetail[] {
       },
     }),
     completed({
-      id: "priya-raman",
+      id: "pt-priya",
       name: "Priya Raman",
       doc: ANTHEM_DOC,
       criteria: priyaCriteria,
@@ -903,7 +914,7 @@ function seed(): PatientDetail[] {
       },
     }),
     completed({
-      id: "sam-whitfield",
+      id: "pt-sam",
       name: "Sam Whitfield",
       doc: UHC_DOC,
       criteria: samCriteria,
@@ -928,7 +939,7 @@ function seed(): PatientDetail[] {
       },
     }),
     completed({
-      id: "ana-beltran",
+      id: "pt-ana",
       name: "Ana Beltran",
       doc: UHC_DOC,
       criteria: anaCriteria,
@@ -956,7 +967,7 @@ function seed(): PatientDetail[] {
       },
     }),
     completed({
-      id: "owen-marsh",
+      id: "pt-owen",
       name: "Owen Marsh",
       doc: UHC_DOC,
       criteria: owenCriteria,
@@ -1072,7 +1083,7 @@ type Script = { text: string; criteria: Criterion[]; summary: string };
 
 function scripts(): Record<string, Script> {
   return {
-    "dana-ortiz": {
+    "pt-dana": {
       text: [
         "Reading UnitedHealthcare commercial medical benefit drug policy 2026D0045AB, ustekinumab.",
         "Criterion 1, diagnosis. The record states moderately to severely active ileocolonic Crohn's disease, confirmed by colonoscopy. MET.",
@@ -1099,7 +1110,7 @@ function scripts(): Record<string, Script> {
       summary:
         "The preferred biosimilar trial ran 9 weeks against the 14 week floor the policy sets. The record contradicts the requirement, so the request is not submitted.",
     },
-    "marcus-webb": {
+    "pt-marcus": {
       text: [
         "Reading UnitedHealthcare commercial medical benefit drug policy 2026D0045AB, ustekinumab.",
         "Criterion 1, diagnosis. Moderately to severely active ileal Crohn's disease is documented. MET.",
