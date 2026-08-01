@@ -28,7 +28,7 @@ from .models import (
     TERMINAL_STATUSES,
     mask_phone_number,
 )
-from .tross import TrossError
+from .patient_source import PatientSource
 
 
 logger = logging.getLogger(__name__)
@@ -97,14 +97,14 @@ class CallCoordinator:
     def __init__(
         self,
         *,
-        tross: Any,
+        patient_source: PatientSource,
         criteria_repository: CriteriaRepository,
         dispatcher: AgentDispatcher,
         timeout_seconds: float = 300,
         task_spawner: Callable[[Coroutine[Any, Any, Any]], object] = asyncio.create_task,
         max_records: int = 50,
     ) -> None:
-        self._tross = tross
+        self._patient_source = patient_source
         self._criteria_repository = criteria_repository
         self._dispatcher = dispatcher
         self._timeout_seconds = timeout_seconds
@@ -160,16 +160,10 @@ class CallCoordinator:
             return
 
         try:
-            patient = await self._tross.fetch_patient(call_request.patient_id)
-        except TrossError:
-            logger.warning("outbound_call_context_failed call_id=%s", call_id)
-            await self._fail(call_id, CallOutcome.CONTEXT_ERROR)
-            return
+            patient = await self._patient_source.fetch_patient(call_request)
         except Exception:
-            # Treat unexpected adapter defects exactly like a bad context: do
-            # not dial if the required synthetic patient brief is unavailable.
-            # Do not log exception text or a traceback here: third-party
-            # client exceptions can include request/response data.
+            # Treat malformed or unavailable fixture context exactly like a
+            # failed lookup: do not dial. Keep logs identifier-only.
             logger.warning("outbound_call_context_failed call_id=%s", call_id)
             await self._fail(call_id, CallOutcome.CONTEXT_ERROR)
             return
@@ -516,7 +510,7 @@ def _redact_summary(
     summary: CallSummary | None,
     patient: PatientBrief | None,
 ) -> CallSummary | None:
-    """Best-effort guard against an agent echoing Tross context into GET data.
+    """Best-effort guard against an agent echoing case context into GET data.
 
     The call prompt still forbids that disclosure, but a server-side literal
     pass provides a second boundary before the short summary outlives the

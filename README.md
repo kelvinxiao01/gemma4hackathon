@@ -3,7 +3,8 @@
 This repository contains a local-demo voice agent that calls a US demo number,
 identifies itself as an AI assistant, and discusses published coverage criteria.
 The FastAPI service and LiveKit worker run locally; LiveKit Cloud provides rooms
-and SIP, and Cerebras, Deepgram, Cartesia, Tavily, and Tross are remote services.
+and SIP, while Cerebras, Deepgram, Cartesia, and Tavily are remote services.
+Patient context comes only from committed synthetic case fixtures.
 
 The outbound path does **not** use Ollama, EmbeddingGemma, or the existing
 `be/docsearch` index. That retrieval experiment remains in the repository as a
@@ -12,14 +13,14 @@ separate component.
 ## What is included
 
 - `be/`: FastAPI API for launching and monitoring one active demo call.
-- `be/calling/`: isolated call coordination, Tross fetch, LiveKit dispatch, and
+- `be/calling/`: isolated call coordination, fixture-case lookup, LiveKit dispatch, and
   the read-only payer-criteria repository boundary.
 - `voice/`: outbound-only LiveKit worker using Cerebras `gemma-4-31b`, Deepgram
   Nova-3, and Cartesia Sonic 3.5.
 - `fe/`: unrelated frontend starter; it is not part of the outbound demo path.
 
 The backend retains call state only in memory. It sends no full transcript or
-Tross payload through its public API. LiveKit Agent Observability is configured
+synthetic case payload through its public API. LiveKit Agent Observability is configured
 for transcripts only; audio, trace, and log uploads are disabled.
 
 ## Architecture
@@ -27,7 +28,7 @@ for transcripts only; audio, trace, and log uploads are disabled.
 ```mermaid
 flowchart LR
   C[Local curl client] -->|POST /calls| B[FastAPI on 127.0.0.1:8000]
-  B -->|synthetic patient only| T[Tross sandbox]
+  B -->|synthetic case lookup| F[Committed cases.json]
   B -->|criteria when database is ready| DB[(Teammate-owned SQLite)]
   B -->|opaque call ID + token| LK[LiveKit Cloud room/dispatch]
   V[Local LiveKit worker] -->|token-protected context/callback| B
@@ -91,7 +92,7 @@ uv run python -m docsearch.serve
 ```bash
 cd voice
 uv sync
-lk agent dev
+lk agent dev src/agent.py
 ```
 
 Launch one synthetic demo call after the backend and worker report ready:
@@ -101,10 +102,10 @@ curl --request POST http://127.0.0.1:8000/calls \
   --header 'content-type: application/json' \
   --data '{
     "to_phone_number": "+12125550123",
-    "patient_id": "sandbox-patient-id",
+    "patient_id": "case-002",
     "payer": "aetna",
     "plan_type": "commercial",
-    "drug": "pembrolizumab"
+    "drug": "ustekinumab"
   }'
 ```
 
@@ -112,9 +113,22 @@ The response is `202` and includes a `call_id` and `status_url`. Poll the URL
 to follow the lifecycle. Only one call can be active at a time; a concurrent
 launch returns `409`.
 
-To test the full outbound phone path without Tross credentials, use the
-[Tross-free synthetic phone-test runbook](be/README.md#tross-free-synthetic-phone-test).
-It starts a separate allowlisted local backend with fixed synthetic context;
+## Synthetic case selection
+
+The backend does not contact a patient-data service. It loads the committed
+synthetic cases in `be/fixtures/cases.json`, keyed by `patient_id`. Keep the
+request's payer, plan type, and drug equal to the selected case or preparation
+will fail before dialing.
+
+| Case ID | Payer / plan / drug | Demo detail |
+| --- | --- | --- |
+| `case-001` | Aetna / commercial / ustekinumab | No TB screening recorded |
+| `case-002` | Aetna / commercial / ustekinumab | Negative TB screening recorded |
+| `case-003` | UHC / commercial / pembrolizumab | No matching committed policy |
+
+To test the full outbound phone path, use the
+[fixture-backed synthetic phone-test runbook](be/README.md#fixture-backed-synthetic-phone-test).
+It starts a separate allowlisted local backend with a selected synthetic case;
 do not run it alongside the regular backend shown above.
 
 ## Configuration
@@ -134,7 +148,6 @@ Voice requires:
 Backend requires:
 
 - `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`
-- `TROSS_API_KEY`, `TROSS_ORG_ID`, `TROSS_AUTH_ID`
 - optionally `PAYER_CRITERIA_DB_PATH` when the teammate-owned SQLite database
   and its schema are available.
 
@@ -184,13 +197,14 @@ uploads. LiveKit documents a 30-day observability retention period.
   for this hackathon demo.
 - The backend validates US E.164 destinations, but Twilio still enforces Trial
   verification and carrier rules.
-- Tross data is sandbox/synthetic. The backend drops `contact_data`, applies
-  size limits, and fails before dialing if the Tross response is malformed.
+- The backend reads only committed synthetic cases from `be/fixtures/cases.json`.
+  It fails before dialing when a case ID is unknown, malformed, or mismatched
+  with its payer, plan type, or drug.
 - The agent waits for answering-machine detection before it speaks. It proceeds
   only for human or uncertain classifications; voicemail, unavailable mailboxes,
   and IVRs end without a message.
-- Tavily queries contain payer, plan, drug, and policy terms only—not patient or
-  Tross context—and are limited to official payer domains plus `cms.gov`.
+- Tavily queries contain payer, plan, drug, and policy terms only—not synthetic
+  case context—and are limited to official payer domains plus `cms.gov`.
 - This is coverage-criteria research support, not a clinical recommendation or
   automated prior-authorization decision.
 

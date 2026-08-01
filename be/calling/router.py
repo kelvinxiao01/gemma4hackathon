@@ -30,7 +30,7 @@ from .models import (
     CallStatusResponse,
     InternalContextResponse,
 )
-from .tross import TrossClient
+from .synthetic_cases import SyntheticCasePatientSource
 
 
 router = APIRouter(tags=["calls"])
@@ -60,11 +60,7 @@ def build_calling_services() -> CallingServices:
                         else "unavailable"),
     )
     coordinator = CallCoordinator(
-        tross=TrossClient(
-            api_key=os.getenv("TROSS_API_KEY"),
-            org_id=os.getenv("TROSS_ORG_ID"),
-            auth_id=os.getenv("TROSS_AUTH_ID"),
-        ),
+        patient_source=SyntheticCasePatientSource(),
         criteria_repository=criteria_repository,
         dispatcher=LiveKitDispatcher(
             url=os.getenv("LIVEKIT_URL"),

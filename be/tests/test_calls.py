@@ -1,14 +1,13 @@
 """Contract tests for the isolated outbound-calling backend.
 
-These tests deliberately inject fakes: they must not dial, contact Tross, or
-need LiveKit credentials.
+These tests deliberately inject fakes: they must not dial, read any external
+patient system, or need LiveKit credentials.
 """
 
 import asyncio
 import json
 from dataclasses import dataclass, field
 
-import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -28,19 +27,18 @@ from calling.models import (
     PublicSourceReference,
 )
 from calling.router import CallingServices, install_calling_router
-from calling.tross import TrossClient, TrossDataError
 from docsearch.serve import app
 
 
 @dataclass
-class FakeTross:
+class FakePatientSource:
     brief: PatientBrief = field(default_factory=lambda: PatientBrief(
         quickview_data={"diagnosis": "synthetic diagnosis"},
         banner_data={"name": "Synthetic Patient"},
     ))
 
-    async def fetch_patient(self, patient_id: str) -> PatientBrief:
-        assert patient_id == "sandbox-patient-id"
+    async def fetch_patient(self, request: CallRequest) -> PatientBrief:
+        assert request.patient_id == "sandbox-patient-id"
         return self.brief
 
 
@@ -73,7 +71,7 @@ def _services(*, run_background: bool = False) -> tuple[CallingServices, FakeDis
     dispatcher = FakeDispatcher()
     deferred = None if run_background else DeferredSpawner()
     coordinator = CallCoordinator(
-        tross=FakeTross(),
+        patient_source=FakePatientSource(),
         criteria_repository=UnavailableCriteriaRepository(),
         dispatcher=dispatcher,
         timeout_seconds=300,
@@ -283,16 +281,16 @@ def test_invalid_agent_state_transition_is_rejected() -> None:
         deferred.close()
 
 
-def test_tross_failure_prevents_dispatch_before_dialing() -> None:
+def test_patient_source_failure_prevents_dispatch_before_dialing() -> None:
     @dataclass
-    class BrokenTross:
-        async def fetch_patient(self, patient_id: str) -> PatientBrief:
-            raise TrossDataError("malformed")
+    class BrokenPatientSource:
+        async def fetch_patient(self, request: CallRequest) -> PatientBrief:
+            raise RuntimeError("malformed")
 
     dispatcher = FakeDispatcher()
     deferred = DeferredSpawner()
     coordinator = CallCoordinator(
-        tross=BrokenTross(),
+        patient_source=BrokenPatientSource(),
         criteria_repository=UnavailableCriteriaRepository(),
         dispatcher=dispatcher,
         task_spawner=deferred,
@@ -330,7 +328,7 @@ def test_fast_agent_callback_can_follow_dispatch_without_a_state_race() -> None:
     dispatcher = CallbackDispatcher()
     deferred = DeferredSpawner()
     coordinator = CallCoordinator(
-        tross=FakeTross(),
+        patient_source=FakePatientSource(),
         criteria_repository=UnavailableCriteriaRepository(),
         dispatcher=dispatcher,
         task_spawner=deferred,
@@ -347,12 +345,12 @@ def test_fast_agent_callback_can_follow_dispatch_without_a_state_race() -> None:
         deferred.close()
 
 
-def test_terminal_summary_redacts_literal_tross_values_before_retention() -> None:
-    private_value = "TOP SECRET TROSS SENTINEL"
+def test_terminal_summary_redacts_literal_context_values_before_retention() -> None:
+    private_value = "TOP SECRET CONTEXT SENTINEL"
     dispatcher = FakeDispatcher()
     deferred = DeferredSpawner()
     coordinator = CallCoordinator(
-        tross=FakeTross(brief=PatientBrief(
+        patient_source=FakePatientSource(brief=PatientBrief(
             quickview_data={"note": private_value},
             banner_data={"member": "synthetic-member"},
         )),
@@ -392,11 +390,11 @@ def test_terminal_summary_redacts_literal_tross_values_before_retention() -> Non
 
 
 def test_summarizing_retains_redacted_summary_until_post_hangup_terminal_event() -> None:
-    private_value = "TROSS TWO PHASE SENTINEL"
+    private_value = "CONTEXT TWO PHASE SENTINEL"
     dispatcher = FakeDispatcher()
     deferred = DeferredSpawner()
     coordinator = CallCoordinator(
-        tross=FakeTross(brief=PatientBrief(
+        patient_source=FakePatientSource(brief=PatientBrief(
             quickview_data={"note": private_value},
             banner_data={},
         )),
@@ -459,7 +457,7 @@ def test_sip_error_callback_maps_no_answer_and_busy_without_exposing_error(
     dispatcher = FakeDispatcher()
     deferred = DeferredSpawner()
     coordinator = CallCoordinator(
-        tross=FakeTross(),
+        patient_source=FakePatientSource(),
         criteria_repository=UnavailableCriteriaRepository(),
         dispatcher=dispatcher,
         task_spawner=deferred,
@@ -503,7 +501,7 @@ def test_timeout_holds_the_one_call_gate_until_inflight_dispatch_is_cleaned() ->
         dispatcher = BlockingDispatcher()
         deferred = DeferredSpawner()
         coordinator = CallCoordinator(
-            tross=FakeTross(),
+            patient_source=FakePatientSource(),
             criteria_repository=UnavailableCriteriaRepository(),
             dispatcher=dispatcher,
             task_spawner=deferred,
@@ -527,69 +525,6 @@ def test_timeout_holds_the_one_call_gate_until_inflight_dispatch_is_cleaned() ->
             deferred.close()
 
     asyncio.run(scenario())
-
-
-def test_tross_request_drops_contact_data_and_rejects_oversized_context() -> None:
-    observed: dict[str, object] = {}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        observed["url"] = str(request.url)
-        observed["api_key"] = request.headers["X-API-Key"]
-        observed["body"] = json.loads(request.content)
-        return httpx.Response(200, json={
-            "contact_data": {"phone": "+12125550123"},
-            "quickview_data": {"diagnosis": "synthetic"},
-            "banner_data": {"name": "Synthetic"},
-        })
-
-    client = TrossClient(
-        api_key="tross-key",
-        org_id="org-id",
-        auth_id="auth-id",
-        transport=httpx.MockTransport(handler),
-    )
-    brief = asyncio.run(client.fetch_patient("sandbox-patient-id"))
-
-    assert observed["url"] == "https://api.ontross.com/api/integrations/athena/fetch-patient"
-    assert observed["api_key"] == "tross-key"
-    assert observed["body"] == {
-        "input": {"patient_id": "sandbox-patient-id", "org_id": "org-id"},
-        "auth_id": "auth-id",
-    }
-    assert brief.quickview_data == {"diagnosis": "synthetic"}
-    assert brief.banner_data == {"name": "Synthetic"}
-    assert not hasattr(brief, "contact_data")
-
-    oversized = TrossClient(
-        api_key="tross-key",
-        org_id="org-id",
-        auth_id="auth-id",
-        max_context_bytes=32,
-        transport=httpx.MockTransport(lambda _: httpx.Response(200, json={
-            "quickview_data": {"text": "x" * 100},
-            "banner_data": {},
-        })),
-    )
-    try:
-        asyncio.run(oversized.fetch_patient("sandbox-patient-id"))
-    except TrossDataError as exc:
-        assert "too large" in str(exc)
-    else:
-        raise AssertionError("oversized Tross context must fail before dialing")
-
-    raw_oversized = TrossClient(
-        api_key="tross-key",
-        org_id="org-id",
-        auth_id="auth-id",
-        max_response_bytes=32,
-        transport=httpx.MockTransport(lambda _: httpx.Response(
-            200,
-            content=b"this is deliberately not JSON",
-            headers={"content-length": "1024"},
-        )),
-    )
-    with pytest.raises(TrossDataError, match="response is too large"):
-        asyncio.run(raw_oversized.fetch_patient("sandbox-patient-id"))
 
 
 def test_health_reports_calling_readiness_when_legacy_index_is_absent(

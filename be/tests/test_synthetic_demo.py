@@ -1,4 +1,4 @@
-"""Tests for the local, Tross-free outbound-call harness."""
+"""Tests for the local fixture-backed outbound-call harness."""
 
 from __future__ import annotations
 
@@ -9,9 +9,8 @@ from dataclasses import dataclass, field, replace
 import pytest
 from fastapi.testclient import TestClient
 
-from calling.models import CallStatus
+from calling.models import CallOutcome, CallRequest, CallStatus
 from calling.synthetic_demo import (
-    SYNTHETIC_PATIENT_ID,
     DialConfirmationRequired,
     SyntheticCallOptions,
     SyntheticDemoConfigurationError,
@@ -21,6 +20,10 @@ from calling.synthetic_demo import (
     is_synthetic_demo_health,
     require_dial_confirmation,
     required_livekit_config,
+)
+from calling.synthetic_cases import (
+    SyntheticCaseConfigurationError,
+    SyntheticCasePatientSource,
 )
 
 
@@ -43,23 +46,22 @@ class DeferredSpawner:
         coroutine.close()
 
 
-def test_synthetic_call_request_has_no_real_patient_identifier() -> None:
+def test_synthetic_call_request_is_derived_from_the_selected_fixture_case() -> None:
     request = build_synthetic_call_request(
         SyntheticCallOptions(
             to_phone_number="+13478868173",
-            payer="aetna",
-            plan_type="commercial",
-            drug="pembrolizumab",
+            case_id="case-002",
         )
     )
 
-    assert request.patient_id == SYNTHETIC_PATIENT_ID
+    assert request.patient_id == "case-002"
     assert request.to_phone_number == "+13478868173"
     assert request.payer == "aetna"
     assert request.plan_type == "commercial"
+    assert request.drug == "ustekinumab"
 
 
-def test_synthetic_demo_dispatches_without_tross_and_exposes_only_fake_context() -> None:
+def test_synthetic_demo_dispatches_from_fixture_and_exposes_only_case_context() -> None:
     dispatcher = FakeDispatcher()
     services = build_synthetic_demo_services(
         livekit_url="wss://example.livekit.cloud",
@@ -72,9 +74,7 @@ def test_synthetic_demo_dispatches_without_tross_and_exposes_only_fake_context()
     request = build_synthetic_call_request(
         SyntheticCallOptions(
             to_phone_number="+13478868173",
-            payer="aetna",
-            plan_type="commercial",
-            drug="pembrolizumab",
+            case_id="case-002",
         )
     )
 
@@ -88,18 +88,127 @@ def test_synthetic_demo_dispatches_without_tross_and_exposes_only_fake_context()
         record.call_id, metadata["token"]))
     assert context.patient == {
         "quickview_data": {
-            "demo_only": True,
-            "notice": "Synthetic call test. No patient data is available.",
+            "synthetic": True,
+            "case_id": "case-002",
+            "patient": {
+                "age": 41,
+                "weight_kg": 68,
+                "height_cm": 163,
+                "diagnosis": "moderately to severely active Crohn's disease",
+                "treatment_history": [
+                    "azathioprine, 8 months, inadequate response",
+                    "prednisone, 12 weeks, dependent",
+                ],
+            },
+            "screening": {
+                "tb_test": "QuantiFERON-TB Gold, negative, 2026-05-12",
+            },
+            "provider": {
+                "name": "Dr. Robin Fixture",
+                "npi": "1234567890",
+                "specialty": "gastroenterology",
+            },
+            "form": {
+                "absolute_dose_mg": None,
+                "bsa_m2": None,
+                "npi_verified": None,
+            },
         },
         "banner_data": {
-            "display_name": "Synthetic call-test patient",
             "synthetic": True,
+            "case_id": "case-002",
+            "payer": "aetna",
+            "plan_type": "commercial",
+            "drug": "ustekinumab",
         },
     }
     assert "contact_data" not in json.dumps(context.patient)
 
 
-def test_required_livekit_config_does_not_require_tross() -> None:
+def test_synthetic_demo_rejects_a_case_policy_mismatch_before_dispatch() -> None:
+    dispatcher = FakeDispatcher()
+    services = build_synthetic_demo_services(
+        livekit_url="wss://example.livekit.cloud",
+        api_key="api-key",
+        api_secret="api-secret",
+        allowed_destination="+13478868173",
+        dispatcher=dispatcher,
+        task_spawner=DeferredSpawner(),
+    )
+    mismatched_request = CallRequest(
+        to_phone_number="+13478868173",
+        patient_id="case-002",
+        payer="aetna",
+        plan_type="commercial",
+        drug="pembrolizumab",
+    )
+
+    record = asyncio.run(services.coordinator.create_call(mismatched_request))
+    asyncio.run(services.coordinator.prepare_call(record.call_id))
+
+    assert record.status == CallStatus.FAILED
+    assert record.outcome == CallOutcome.CONTEXT_ERROR
+    assert dispatcher.requests == []
+
+
+def test_synthetic_demo_rejects_an_unknown_case_before_dispatch() -> None:
+    dispatcher = FakeDispatcher()
+    services = build_synthetic_demo_services(
+        livekit_url="wss://example.livekit.cloud",
+        api_key="api-key",
+        api_secret="api-secret",
+        allowed_destination="+13478868173",
+        dispatcher=dispatcher,
+        task_spawner=DeferredSpawner(),
+    )
+    unknown_request = CallRequest(
+        to_phone_number="+13478868173",
+        patient_id="case-missing",
+        payer="aetna",
+        plan_type="commercial",
+        drug="ustekinumab",
+    )
+
+    record = asyncio.run(services.coordinator.create_call(unknown_request))
+    asyncio.run(services.coordinator.prepare_call(record.call_id))
+
+    assert record.status == CallStatus.FAILED
+    assert record.outcome == CallOutcome.CONTEXT_ERROR
+    assert dispatcher.requests == []
+
+
+def test_synthetic_case_source_rejects_malformed_fixture(tmp_path) -> None:
+    malformed = tmp_path / "cases.json"
+    malformed.write_text("{}", encoding="utf-8")
+
+    with pytest.raises(SyntheticCaseConfigurationError, match="must be a list"):
+        SyntheticCasePatientSource(cases_path=malformed)
+
+
+def test_standard_calling_services_use_fixture_cases_without_patient_service_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import calling.router as calling_router
+
+    dispatcher = FakeDispatcher()
+    monkeypatch.setattr(calling_router, "LiveKitDispatcher", lambda **_: dispatcher)
+    monkeypatch.setattr(calling_router, "load_dotenv", lambda *_, **__: False)
+
+    services = calling_router.build_calling_services()
+    request = build_synthetic_call_request(
+        SyntheticCallOptions(
+            to_phone_number="+13478868173",
+            case_id="case-002",
+        )
+    )
+    record = asyncio.run(services.coordinator.create_call(request))
+    asyncio.run(services.coordinator.prepare_call(record.call_id))
+
+    assert record.status == CallStatus.DISPATCHED
+    assert len(dispatcher.requests) == 1
+
+
+def test_required_livekit_config_does_not_require_patient_service_credentials() -> None:
     assert required_livekit_config({
         "LIVEKIT_URL": "wss://example.livekit.cloud",
         "LIVEKIT_API_KEY": "api-key",
@@ -126,10 +235,10 @@ def test_synthetic_demo_blocks_destinations_outside_its_allowlist() -> None:
     with TestClient(app) as client:
         response = client.post("/calls", json={
             "to_phone_number": "+12125550123",
-            "patient_id": SYNTHETIC_PATIENT_ID,
+            "patient_id": "case-002",
             "payer": "aetna",
             "plan_type": "commercial",
-            "drug": "pembrolizumab",
+            "drug": "ustekinumab",
         })
 
     assert response.status_code == 403

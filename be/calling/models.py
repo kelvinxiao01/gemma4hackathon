@@ -98,7 +98,7 @@ class CriteriaEvidence:
 
 @dataclass(frozen=True, slots=True)
 class PatientBrief:
-    """The safe subset of a Tross patient response for one agent call."""
+    """The safe synthetic-case context retained for one agent call."""
 
     quickview_data: Any
     banner_data: Any
