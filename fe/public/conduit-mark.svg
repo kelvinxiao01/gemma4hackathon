@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" role="img" aria-label="Conduit">
+  <title>Conduit</title>
+  <!-- Outer stroke: the conduit wall. Also the C, also an open citation bracket. -->
+  <path d="M19 4.5 H9 A2 2 0 0 0 7 6.5 V17.5 A2 2 0 0 0 9 19.5 H19"
+        fill="none" stroke="#16191B" stroke-width="3.5" stroke-linecap="butt" />
+  <!-- Inner stroke: the conductor. Set back from the mouth, so it never crosses the opening. -->
+  <path d="M17 9.25 H13 A1 1 0 0 0 12 10.25 V13.75 A1 1 0 0 0 13 14.75 H17"
+        fill="none" stroke="#C2610A" stroke-width="2.5" stroke-linecap="butt" />
+</svg>
