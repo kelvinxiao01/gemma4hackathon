@@ -1,0 +1,781 @@
+[
+  {
+    "id": "pt-dana",
+    "name": "Dana Ortiz",
+    "payer": "uhc",
+    "payer_name": "UnitedHealthcare",
+    "drug": "ustekinumab",
+    "brand_name": "Stelara",
+    "plan_type": "commercial",
+    "stage": "intake",
+    "created_hours_ago": 6,
+    "record": {
+      "age": 41,
+      "weight_kg": 68,
+      "height_cm": 163,
+      "diagnosis": "moderately to severely active Crohn's disease",
+      "treatment_history": [
+        "azathioprine, 8 months, maximally dosed, inadequate response",
+        "Wezlana (ustekinumab-auub), 9 weeks, discontinued, minimal clinical response"
+      ],
+      "screening": {
+        "tuberculosis_screening": "negative interferon gamma release assay, 2026-06-12",
+        "hepatitis_b_screening": "negative surface antigen, 2026-06-12",
+        "concurrent_targeted_immunomodulator": "none",
+        "planned_administration": "single intravenous induction dose, weight-based",
+        "requested_authorization_period": "one induction dose"
+      },
+      "provider": {
+        "name": "Dr. Robin Fixture",
+        "npi": "1111111111",
+        "specialty": "gastroenterology"
+      }
+    }
+  },
+  {
+    "id": "pt-marcus",
+    "name": "Marcus Webb",
+    "payer": "uhc",
+    "payer_name": "UnitedHealthcare",
+    "drug": "ustekinumab",
+    "brand_name": "Stelara",
+    "plan_type": "commercial",
+    "stage": "intake",
+    "created_hours_ago": 5,
+    "record": {
+      "age": 34,
+      "weight_kg": 82,
+      "height_cm": 175,
+      "diagnosis": "moderately to severely active Crohn's disease",
+      "treatment_history": [
+        "azathioprine, 6 months, maximally dosed, inadequate response",
+        "Wezlana (ustekinumab-auub), 16 weeks, minimal clinical response, residual disease activity"
+      ],
+      "screening": {
+        "tuberculosis_screening": "negative interferon gamma release assay, 2026-06-28",
+        "hepatitis_b_screening": "negative surface antigen, 2026-06-28",
+        "concurrent_targeted_immunomodulator": "none",
+        "planned_administration": "single intravenous induction dose, weight-based",
+        "requested_authorization_period": "one induction dose"
+      },
+      "provider": {
+        "name": "Dr. Avery Testcase",
+        "npi": "1234567890",
+        "specialty": "gastroenterology"
+      }
+    }
+  },
+  {
+    "id": "pt-ravi",
+    "name": "Ravi Patel",
+    "payer": "uhc",
+    "payer_name": "UnitedHealthcare",
+    "drug": "ustekinumab",
+    "brand_name": "Stelara",
+    "plan_type": "commercial",
+    "stage": "scheduling",
+    "created_hours_ago": 4,
+    "decided_hours_ago": 2,
+    "record": {
+      "age": 47,
+      "weight_kg": 88,
+      "height_cm": 180,
+      "diagnosis": "moderately to severely active Crohn's disease",
+      "treatment_history": [
+        "azathioprine, 7 months, maximally dosed, inadequate response",
+        "Wezlana (ustekinumab-auub), 18 weeks, minimal clinical response, residual disease activity"
+      ],
+      "screening": {
+        "tuberculosis_screening": "negative interferon gamma release assay, 2026-05-30",
+        "hepatitis_b_screening": "negative surface antigen, 2026-05-30",
+        "concurrent_targeted_immunomodulator": "none",
+        "planned_administration": "single intravenous induction dose, weight-based",
+        "requested_authorization_period": "one induction dose"
+      },
+      "provider": {
+        "name": "Dr. Avery Testcase",
+        "npi": "1234567890",
+        "specialty": "gastroenterology"
+      }
+    },
+    "summary": "All four required criteria are met. The record documents an 18-week Wezlana trial with residual disease activity, which clears the preferred-product step.",
+    "criteria": [
+      {
+        "criterion": "Diagnosis of moderately to severely active Crohn's disease",
+        "kind": "required",
+        "status": "MET",
+        "evidence": "Ileocolonic Crohn's disease confirmed on colonoscopy 2026-05-18 with elevated fecal calprotectin.",
+        "ref": "p.2",
+        "quote": "Diagnosis of moderately to severely active Crohn's disease; and"
+      },
+      {
+        "criterion": "Failure of a conventional therapy at up to maximally indicated doses",
+        "kind": "required",
+        "status": "MET",
+        "evidence": "Azathioprine for 7 months at maximally indicated dose with inadequate response.",
+        "ref": "p.2",
+        "quote": "History of failure to one of the following conventional therapies at up to maximally indicated doses, unless contraindicated or clinically significant adverse effects are experienced:"
+      },
+      {
+        "criterion": "Trial of at least 14 weeks of a preferred ustekinumab product with minimal clinical response",
+        "kind": "required",
+        "status": "MET",
+        "evidence": "Wezlana (ustekinumab-auub) for 18 weeks with minimal clinical response and residual disease activity.",
+        "ref": "p.2",
+        "quote": "Documentation of a trial of at least 14 weeks of Starjemza, Steqeyma, Wezlana, or Yesintek"
+      },
+      {
+        "criterion": "Prescribed by or in consultation with a gastroenterologist",
+        "kind": "required",
+        "status": "MET",
+        "evidence": "Prescribed by Dr. Avery Testcase, gastroenterology.",
+        "ref": "p.3",
+        "quote": "Prescribed by or in consultation with a gastroenterologist; and"
+      },
+      {
+        "criterion": "Administered as a single intravenous induction dose",
+        "kind": "supporting",
+        "status": "MET",
+        "evidence": "Order specifies a single weight-based intravenous induction dose.",
+        "ref": "p.2",
+        "quote": "Ustekinumab is to be administered as a single intravenous induction dose; and"
+      },
+      {
+        "criterion": "Not receiving ustekinumab with another systemic targeted immunomodulator",
+        "kind": "supporting",
+        "status": "MET",
+        "evidence": "No concurrent targeted immunomodulator recorded.",
+        "ref": "p.2",
+        "quote": "Patient is not receiving ustekinumab in combination with a systemic targeted immunomodulator [e.g., adalimumab, Cimzia (certolizumab), Entyvio (vedolizumab), Omvoh (mirikizumab-mrkz), Rinvoq (upadacitinib), Skyrizi (risankizumab), Tremfya (guselkumab)] for treatment of the same indication; and"
+      }
+    ],
+    "decision": {
+      "outcome": "APPROVED",
+      "source": "payer",
+      "reasoning": "All initial coverage criteria met; single intravenous induction dose authorized."
+    }
+  },
+  {
+    "id": "pt-elena",
+    "name": "Elena Park",
+    "payer": "uhc",
+    "payer_name": "UnitedHealthcare",
+    "drug": "ustekinumab",
+    "brand_name": "Stelara",
+    "plan_type": "commercial",
+    "stage": "booked",
+    "created_hours_ago": 30,
+    "decided_hours_ago": 26,
+    "booked_hours_ago": 25,
+    "record": {
+      "age": 38,
+      "weight_kg": 71,
+      "height_cm": 167,
+      "diagnosis": "moderately to severely active Crohn's disease",
+      "treatment_history": [
+        "budesonide, 4 months, inadequate response",
+        "azathioprine, 9 months, maximally dosed, inadequate response",
+        "Steqeyma (ustekinumab-stba), 15 weeks, minimal clinical response"
+      ],
+      "screening": {
+        "tuberculosis_screening": "negative interferon gamma release assay, 2026-04-22",
+        "concurrent_targeted_immunomodulator": "none",
+        "planned_administration": "single intravenous induction dose, weight-based",
+        "requested_authorization_period": "one induction dose"
+      },
+      "provider": {
+        "name": "Dr. Robin Fixture",
+        "npi": "1111111111",
+        "specialty": "gastroenterology"
+      }
+    },
+    "summary": "All four required criteria are met. A 15-week Steqeyma trial with minimal response clears the preferred-product step.",
+    "criteria": [
+      {
+        "criterion": "Diagnosis of moderately to severely active Crohn's disease",
+        "kind": "required",
+        "status": "MET",
+        "evidence": "Crohn's disease documented on colonoscopy 2026-03-11 with active ileal inflammation.",
+        "ref": "p.2",
+        "quote": "Diagnosis of moderately to severely active Crohn's disease; and"
+      },
+      {
+        "criterion": "Failure of a conventional therapy at up to maximally indicated doses",
+        "kind": "required",
+        "status": "MET",
+        "evidence": "Budesonide and azathioprine both documented with inadequate response.",
+        "ref": "p.2",
+        "quote": "History of failure to one of the following conventional therapies at up to maximally indicated doses, unless contraindicated or clinically significant adverse effects are experienced:"
+      },
+      {
+        "criterion": "Trial of at least 14 weeks of a preferred ustekinumab product with minimal clinical response",
+        "kind": "required",
+        "status": "MET",
+        "evidence": "Steqeyma (ustekinumab-stba) for 15 weeks with minimal clinical response.",
+        "ref": "p.2",
+        "quote": "Documentation of a trial of at least 14 weeks of Starjemza, Steqeyma, Wezlana, or Yesintek"
+      },
+      {
+        "criterion": "Prescribed by or in consultation with a gastroenterologist",
+        "kind": "required",
+        "status": "MET",
+        "evidence": "Prescribed by Dr. Robin Fixture, gastroenterology.",
+        "ref": "p.3",
+        "quote": "Prescribed by or in consultation with a gastroenterologist; and"
+      },
+      {
+        "criterion": "Administered as a single intravenous induction dose",
+        "kind": "supporting",
+        "status": "MET",
+        "evidence": "Order specifies a single weight-based intravenous induction dose.",
+        "ref": "p.2",
+        "quote": "Ustekinumab is to be administered as a single intravenous induction dose; and"
+      },
+      {
+        "criterion": "Not receiving ustekinumab with another systemic targeted immunomodulator",
+        "kind": "supporting",
+        "status": "MET",
+        "evidence": "No concurrent targeted immunomodulator recorded.",
+        "ref": "p.2",
+        "quote": "Patient is not receiving ustekinumab in combination with a systemic targeted immunomodulator [e.g., adalimumab, Cimzia (certolizumab), Entyvio (vedolizumab), Omvoh (mirikizumab-mrkz), Rinvoq (upadacitinib), Skyrizi (risankizumab), Tremfya (guselkumab)] for treatment of the same indication; and"
+      }
+    ],
+    "decision": {
+      "outcome": "APPROVED",
+      "source": "payer",
+      "reasoning": "All initial coverage criteria met; single intravenous induction dose authorized."
+    },
+    "appointment": {
+      "center_name": "Hudson Infusion Center",
+      "address": "410 Hudson Street, Suite 200, New York, NY 10014",
+      "phone": "+1 212 555 0142",
+      "starts_at": "2026-08-03T09:30:00-04:00"
+    }
+  },
+  {
+    "id": "pt-tomas",
+    "name": "Tomas Rivera",
+    "payer": "cigna",
+    "payer_name": "Cigna",
+    "drug": "ustekinumab",
+    "brand_name": "Stelara",
+    "plan_type": "commercial",
+    "stage": "booked",
+    "created_hours_ago": 40,
+    "decided_hours_ago": 36.5,
+    "booked_hours_ago": 35.5,
+    "record": {
+      "age": 29,
+      "weight_kg": 74,
+      "height_cm": 178,
+      "diagnosis": "moderately to severely active Crohn's disease",
+      "treatment_history": [
+        "methotrexate, 5 months, inadequate response",
+        "prednisone taper, 3 courses, steroid dependent"
+      ],
+      "screening": {
+        "tuberculosis_screening": "negative interferon gamma release assay, 2026-05-02",
+        "planned_administration": "single weight-based intravenous induction dose",
+        "requested_authorization_period": "30 days"
+      },
+      "provider": {
+        "name": "Dr. Robin Fixture",
+        "npi": "1111111111",
+        "specialty": "gastroenterology"
+      }
+    },
+    "summary": "All three required criteria are met. Induction use, age, and gastroenterologist involvement are all documented.",
+    "criteria": [
+      {
+        "criterion": "Patient is at least 2 years of age",
+        "kind": "required",
+        "status": "MET",
+        "evidence": "Patient is 29 years old.",
+        "ref": "p.3",
+        "quote": "1. Crohn's Disease. Approve a single dose if the patient meets the following (A, B, and C): A) Patient is >= 2 years of age; AND"
+      },
+      {
+        "criterion": "Medication will be used as induction therapy",
+        "kind": "required",
+        "status": "MET",
+        "evidence": "Order is for a single intravenous induction dose.",
+        "ref": "p.3",
+        "quote": "B) The medication will be used as induction therapy; AND"
+      },
+      {
+        "criterion": "Prescribed by or in consultation with a gastroenterologist",
+        "kind": "required",
+        "status": "MET",
+        "evidence": "Prescribed by Dr. Robin Fixture, gastroenterology.",
+        "ref": "p.3",
+        "quote": "C) The medication is prescribed by or in consultation with a gastroenterologist."
+      },
+      {
+        "criterion": "Weight-based dose within the approvable range",
+        "kind": "supporting",
+        "status": "MET",
+        "evidence": "74 kg falls in the 55 to 85 kg band; 390 mg intravenous infusion ordered.",
+        "ref": "p.3",
+        "quote": "C) > 55 kg but <= 85 kg (> 121 lbs but <= 187 lbs): Approve up to 390 mg as an intravenous infusion."
+      },
+      {
+        "criterion": "Approval period limited to a single dose",
+        "kind": "supporting",
+        "status": "MET",
+        "evidence": "Request is for one dose over a 30-day authorization.",
+        "ref": "p.3",
+        "quote": "All approvals are provided for 30 days, which is an adequate duration for the patient to receive one dose."
+      }
+    ],
+    "decision": {
+      "outcome": "APPROVED",
+      "source": "payer",
+      "reasoning": "Induction criteria met; one intravenous dose authorized for 30 days."
+    },
+    "appointment": {
+      "center_name": "Riverside Infusion Suite",
+      "address": "88 Riverside Boulevard, Jersey City, NJ 07310",
+      "phone": "+1 201 555 0188",
+      "starts_at": "2026-08-04T14:00:00-04:00"
+    }
+  },
+  {
+    "id": "pt-june",
+    "name": "June Okafor",
+    "payer": "anthem",
+    "payer_name": "Anthem",
+    "drug": "pembrolizumab",
+    "brand_name": "Keytruda",
+    "plan_type": "commercial",
+    "stage": "booked",
+    "created_hours_ago": 52,
+    "decided_hours_ago": 47,
+    "booked_hours_ago": 46,
+    "record": {
+      "age": 63,
+      "weight_kg": 66,
+      "height_cm": 160,
+      "diagnosis": "metastatic non-small cell lung cancer, adenocarcinoma",
+      "treatment_history": [
+        "no prior systemic therapy for metastatic disease"
+      ],
+      "screening": {
+        "pd_l1_tumor_proportion_score": "72 percent by FDA-approved assay, 2026-05-19",
+        "egfr_alk_status": "no targetable driver alteration",
+        "ecog_performance_status": "1"
+      },
+      "provider": {
+        "name": "Dr. Avery Testcase",
+        "npi": "1234567890",
+        "specialty": "medical oncology"
+      }
+    },
+    "summary": "All three required criteria are met. PD-L1 TPS of 72 percent clears the first-line single-agent threshold.",
+    "criteria": [
+      {
+        "criterion": "Metastatic non-small cell lung cancer with no prior systemic therapy",
+        "kind": "required",
+        "status": "MET",
+        "evidence": "Metastatic adenocarcinoma, treatment naive for metastatic disease.",
+        "ref": "p.7",
+        "quote": "express PD-L1 [Tumor Proportion Score (TPS) >=1%] as determined by an FDA-approved test, with no"
+      },
+      {
+        "criterion": "PD-L1 tumor proportion score of at least 50 percent for single-agent use",
+        "kind": "required",
+        "status": "MET",
+        "evidence": "TPS 72 percent by FDA-approved assay.",
+        "ref": "p.6",
+        "quote": "have high PD-L1 expression [Tumor Proportion Score (TPS) >=50%] as determined by an FDA-approved"
+      },
+      {
+        "criterion": "No targetable EGFR or ALK genomic alteration",
+        "kind": "required",
+        "status": "MET",
+        "evidence": "Comprehensive genomic profiling shows no targetable driver alteration.",
+        "ref": "p.7",
+        "quote": "disease progression on FDA-approved therapy for these aberrations prior to receiving KEYTRUDA."
+      },
+      {
+        "criterion": "Performance status supports systemic therapy",
+        "kind": "supporting",
+        "status": "MET",
+        "evidence": "ECOG performance status 1.",
+        "ref": "p.3",
+        "quote": "recurrent, or metastatic disease and Karnofsky performance score >=60% or ECOG performance score of <=2"
+      }
+    ],
+    "decision": {
+      "outcome": "APPROVED",
+      "source": "payer",
+      "reasoning": "First-line single-agent criteria met; therapy authorized for 12 months."
+    },
+    "appointment": {
+      "center_name": "Hudson Infusion Center",
+      "address": "410 Hudson Street, Suite 200, New York, NY 10014",
+      "phone": "+1 212 555 0142",
+      "starts_at": "2026-08-05T11:00:00-04:00"
+    }
+  },
+  {
+    "id": "pt-victor",
+    "name": "Victor Hale",
+    "payer": "uhc",
+    "payer_name": "UnitedHealthcare",
+    "drug": "ustekinumab",
+    "brand_name": "Stelara",
+    "plan_type": "commercial",
+    "stage": "payer_denied",
+    "created_hours_ago": 20,
+    "decided_hours_ago": 16,
+    "record": {
+      "age": 52,
+      "weight_kg": 91,
+      "height_cm": 183,
+      "diagnosis": "moderately to severely active Crohn's disease",
+      "treatment_history": [
+        "azathioprine, 11 months, maximally dosed, inadequate response"
+      ],
+      "screening": {
+        "tuberculosis_screening": "negative interferon gamma release assay, 2026-06-01",
+        "concurrent_targeted_immunomodulator": "none",
+        "planned_administration": "single intravenous induction dose, weight-based",
+        "requested_authorization_period": "one induction dose"
+      },
+      "provider": {
+        "name": "Dr. Robin Fixture",
+        "npi": "1111111111",
+        "specialty": "gastroenterology"
+      }
+    },
+    "summary": "Three of four required criteria are met. The record does not document any trial of a preferred ustekinumab product, so the preferred-product step is unresolved and the case needs specialist review.",
+    "criteria": [
+      {
+        "criterion": "Diagnosis of moderately to severely active Crohn's disease",
+        "kind": "required",
+        "status": "MET",
+        "evidence": "Crohn's disease documented on imaging and colonoscopy 2026-04-30.",
+        "ref": "p.2",
+        "quote": "Diagnosis of moderately to severely active Crohn's disease; and"
+      },
+      {
+        "criterion": "Failure of a conventional therapy at up to maximally indicated doses",
+        "kind": "required",
+        "status": "MET",
+        "evidence": "Azathioprine for 11 months at maximally indicated dose with inadequate response.",
+        "ref": "p.2",
+        "quote": "History of failure to one of the following conventional therapies at up to maximally indicated doses, unless contraindicated or clinically significant adverse effects are experienced:"
+      },
+      {
+        "criterion": "Trial of at least 14 weeks of a preferred ustekinumab product with minimal clinical response",
+        "kind": "required",
+        "status": "UNKNOWN",
+        "evidence": "No trial of Starjemza, Steqeyma, Wezlana, or Yesintek appears anywhere in the record.",
+        "ref": "p.2",
+        "quote": "Documentation of a trial of at least 14 weeks of Starjemza, Steqeyma, Wezlana, or Yesintek"
+      },
+      {
+        "criterion": "Prescribed by or in consultation with a gastroenterologist",
+        "kind": "required",
+        "status": "MET",
+        "evidence": "Prescribed by Dr. Robin Fixture, gastroenterology.",
+        "ref": "p.3",
+        "quote": "Prescribed by or in consultation with a gastroenterologist; and"
+      },
+      {
+        "criterion": "Administered as a single intravenous induction dose",
+        "kind": "supporting",
+        "status": "MET",
+        "evidence": "Order specifies a single weight-based intravenous induction dose.",
+        "ref": "p.2",
+        "quote": "Ustekinumab is to be administered as a single intravenous induction dose; and"
+      },
+      {
+        "criterion": "Not receiving ustekinumab with another systemic targeted immunomodulator",
+        "kind": "supporting",
+        "status": "MET",
+        "evidence": "No concurrent targeted immunomodulator recorded.",
+        "ref": "p.2",
+        "quote": "Patient is not receiving ustekinumab in combination with a systemic targeted immunomodulator [e.g., adalimumab, Cimzia (certolizumab), Entyvio (vedolizumab), Omvoh (mirikizumab-mrkz), Rinvoq (upadacitinib), Skyrizi (risankizumab), Tremfya (guselkumab)] for treatment of the same indication; and"
+      }
+    ],
+    "decision": {
+      "outcome": "PAYER_DENIED",
+      "source": "payer",
+      "reasoning": "No documented 14-week trial of a preferred biosimilar (Wezlana, Steqeyma, Yesintek); commercial policy p.2"
+    }
+  },
+  {
+    "id": "pt-priya",
+    "name": "Priya Raman",
+    "payer": "anthem",
+    "payer_name": "Anthem",
+    "drug": "pembrolizumab",
+    "brand_name": "Keytruda",
+    "plan_type": "commercial",
+    "stage": "payer_denied",
+    "created_hours_ago": 27,
+    "decided_hours_ago": 24,
+    "record": {
+      "age": 58,
+      "weight_kg": 62,
+      "height_cm": 158,
+      "diagnosis": "metastatic non-small cell lung cancer, squamous",
+      "treatment_history": [
+        "no prior systemic therapy for metastatic disease"
+      ],
+      "screening": {
+        "pd_l1_tumor_proportion_score": "not documented at time of request",
+        "egfr_alk_status": "no targetable driver alteration",
+        "ecog_performance_status": "1"
+      },
+      "provider": {
+        "name": "Dr. Avery Testcase",
+        "npi": "1234567890",
+        "specialty": "medical oncology"
+      }
+    },
+    "summary": "Two of three required criteria are met. No PD-L1 tumor proportion score appears in the record, so the single-agent threshold cannot be evaluated and the case needs specialist review.",
+    "criteria": [
+      {
+        "criterion": "Metastatic non-small cell lung cancer with no prior systemic therapy",
+        "kind": "required",
+        "status": "MET",
+        "evidence": "Metastatic squamous carcinoma, treatment naive for metastatic disease.",
+        "ref": "p.7",
+        "quote": "express PD-L1 [Tumor Proportion Score (TPS) >=1%] as determined by an FDA-approved test, with no"
+      },
+      {
+        "criterion": "PD-L1 tumor proportion score of at least 50 percent for single-agent use",
+        "kind": "required",
+        "status": "UNKNOWN",
+        "evidence": "No PD-L1 result is attached to the request.",
+        "ref": "p.6",
+        "quote": "have high PD-L1 expression [Tumor Proportion Score (TPS) >=50%] as determined by an FDA-approved"
+      },
+      {
+        "criterion": "No targetable EGFR or ALK genomic alteration",
+        "kind": "required",
+        "status": "MET",
+        "evidence": "Comprehensive genomic profiling shows no targetable driver alteration.",
+        "ref": "p.7",
+        "quote": "disease progression on FDA-approved therapy for these aberrations prior to receiving KEYTRUDA."
+      },
+      {
+        "criterion": "Performance status supports systemic therapy",
+        "kind": "supporting",
+        "status": "MET",
+        "evidence": "ECOG performance status 1.",
+        "ref": "p.3",
+        "quote": "recurrent, or metastatic disease and Karnofsky performance score >=60% or ECOG performance score of <=2"
+      }
+    ],
+    "decision": {
+      "outcome": "PAYER_DENIED",
+      "source": "payer",
+      "reasoning": "PD-L1 TPS 20 percent, below the 50 percent threshold for first-line monotherapy"
+    }
+  },
+  {
+    "id": "pt-sam",
+    "name": "Sam Whitfield",
+    "payer": "anthem",
+    "payer_name": "Anthem",
+    "drug": "nivolumab",
+    "brand_name": "Opdivo",
+    "plan_type": "commercial",
+    "stage": "payer_denied",
+    "created_hours_ago": 45,
+    "decided_hours_ago": 40.5,
+    "record": {
+      "age": 61,
+      "weight_kg": 79,
+      "height_cm": 172,
+      "diagnosis": "recurrent metastatic squamous cell carcinoma of the head and neck",
+      "treatment_history": [
+        "platinum-based chemotherapy, disease progression at 5 months"
+      ],
+      "screening": {
+        "prior_checkpoint_inhibitor_exposure": "not documented at time of request",
+        "ecog_performance_status": "1"
+      },
+      "provider": {
+        "name": "Dr. Avery Testcase",
+        "npi": "1234567890",
+        "specialty": "medical oncology"
+      }
+    },
+    "summary": "Two of three required criteria are met. Whether the patient has had prior anti-PD-1 exposure is not addressed anywhere in the record, so retreatment eligibility is unresolved and the case needs specialist review.",
+    "criteria": [
+      {
+        "criterion": "Recurrent or metastatic squamous cell carcinoma of the head and neck",
+        "kind": "required",
+        "status": "MET",
+        "evidence": "Recurrent metastatic disease confirmed on restaging imaging 2026-05-08.",
+        "ref": "p.4",
+        "quote": "metastatic squamous cell carcinoma of the head and neck (SCCHN) with disease progression on or after platinum-"
+      },
+      {
+        "criterion": "Disease progression on or after platinum-containing chemotherapy",
+        "kind": "required",
+        "status": "MET",
+        "evidence": "Progression documented 5 months into platinum-based chemotherapy.",
+        "ref": "p.19",
+        "quote": "3. Confirmation of disease progression on or after platinum-containing chemotherapy; AND"
+      },
+      {
+        "criterion": "No prior anti-PD-1 exposure, or documented disease control on prior anti-PD-1 therapy",
+        "kind": "required",
+        "status": "UNKNOWN",
+        "evidence": "The record does not state whether a checkpoint inhibitor was given previously.",
+        "ref": "p.6",
+        "quote": "prior anti-PD-1 immunotherapy resulted in disease control (complete response, partial response, or"
+      },
+      {
+        "criterion": "Performance status supports systemic therapy",
+        "kind": "supporting",
+        "status": "MET",
+        "evidence": "ECOG performance status 1.",
+        "ref": "p.3",
+        "quote": "as palliative therapy when patients are not surgical candidates or have unresectable locally advanced, recurrent, or metastatic disease as first-line therapy or second-line therapy/subsequent therapy if individual has a Karnofsky performance score >=60% or ECOG performance score <=2."
+      }
+    ],
+    "decision": {
+      "outcome": "PAYER_DENIED",
+      "source": "payer",
+      "reasoning": "Prior anti-PD-1 exposure documented; not eligible for retreatment"
+    }
+  },
+  {
+    "id": "pt-ana",
+    "name": "Ana Beltran",
+    "payer": "aetna",
+    "payer_name": "Aetna",
+    "drug": "ustekinumab",
+    "brand_name": "Stelara",
+    "plan_type": "commercial",
+    "stage": "not_qualified",
+    "created_hours_ago": 62,
+    "decided_hours_ago": 55,
+    "record": {
+      "age": 44,
+      "weight_kg": 69,
+      "height_cm": 165,
+      "diagnosis": "moderately to severely active Crohn's disease",
+      "treatment_history": [
+        "methotrexate, 6 months, inadequate response"
+      ],
+      "screening": {
+        "tuberculosis_screening": "not documented at time of request",
+        "planned_administration": "single intravenous induction dose, weight-based"
+      },
+      "provider": {
+        "name": "Dr. Robin Fixture",
+        "npi": "1111111111",
+        "specialty": "gastroenterology"
+      }
+    },
+    "summary": "Two of three required criteria are met. No tuberculosis evaluation appears in the record before biologic initiation, so the case needs specialist review rather than submission.",
+    "criteria": [
+      {
+        "criterion": "Moderately to severely active Crohn's disease",
+        "kind": "required",
+        "status": "MET",
+        "evidence": "Active Crohn's disease documented on colonoscopy 2026-04-02.",
+        "ref": null,
+        "quote": "For treatment of moderately to severely active CD;"
+      },
+      {
+        "criterion": "Inadequate response to a conventional synthetic drug at adequate dose and duration",
+        "kind": "required",
+        "status": "MET",
+        "evidence": "Methotrexate for 6 months with inadequate response.",
+        "ref": null,
+        "quote": "Member has had an inadequate response to methotrexate, leflunomide, or another conventional synthetic drug (e.g., sulfasalazine) administered at an adequate dose and duration; or"
+      },
+      {
+        "criterion": "Tuberculosis evaluation before biologic initiation",
+        "kind": "required",
+        "status": "UNKNOWN",
+        "evidence": "No tuberculosis test result is attached to the request.",
+        "ref": null,
+        "quote": "Tuberculosis [not covered for persons with active TB or untreated latent disease]"
+      },
+      {
+        "criterion": "Prescribed by a gastroenterologist",
+        "kind": "supporting",
+        "status": "MET",
+        "evidence": "Prescribed by Dr. Robin Fixture, gastroenterology.",
+        "ref": null,
+        "quote": "Crohn's disease and ulcerative colitis: gastroenterologist;"
+      }
+    ],
+    "decision": {
+      "outcome": "NOT_SUBMITTED",
+      "source": "conduit",
+      "reasoning": "Tuberculosis evaluation not documented prior to biologic initiation"
+    }
+  },
+  {
+    "id": "pt-owen",
+    "name": "Owen Marsh",
+    "payer": "anthem",
+    "payer_name": "Anthem",
+    "drug": "atezolizumab",
+    "brand_name": "Tecentriq",
+    "plan_type": "commercial",
+    "stage": "not_qualified",
+    "created_hours_ago": 68,
+    "decided_hours_ago": 66,
+    "record": {
+      "age": 66,
+      "weight_kg": 84,
+      "height_cm": 176,
+      "diagnosis": "small cell lung cancer",
+      "treatment_history": [
+        "no prior systemic therapy"
+      ],
+      "screening": {
+        "disease_stage": "not documented at time of request",
+        "ecog_performance_status": "1"
+      },
+      "provider": {
+        "name": "Dr. Avery Testcase",
+        "npi": "1234567890",
+        "specialty": "medical oncology"
+      }
+    },
+    "summary": "One of two required criteria is met. The record does not state whether the disease is extensive stage, so first-line eligibility is unresolved and the case needs specialist review rather than submission.",
+    "criteria": [
+      {
+        "criterion": "Extensive-stage small cell lung cancer",
+        "kind": "required",
+        "status": "UNKNOWN",
+        "evidence": "Staging is not recorded anywhere in the request.",
+        "ref": "p.5",
+        "quote": "R. First-line treatment of extensive-stage small cell lung cancer (ES-SCLC) (Label, NCCN 1, 2A); AND"
+      },
+      {
+        "criterion": "First-line use with no prior systemic therapy",
+        "kind": "required",
+        "status": "MET",
+        "evidence": "No prior systemic therapy recorded.",
+        "ref": "p.1",
+        "quote": "Individuals with extensive-stage small cell lung cancer (SCLC)."
+      },
+      {
+        "criterion": "Performance status supports systemic therapy",
+        "kind": "supporting",
+        "status": "MET",
+        "evidence": "ECOG performance status 1.",
+        "ref": "p.2",
+        "quote": "Extensive-stage small cell lung cancer: Cancer has spread to other parts of the body and could include the fluid"
+      }
+    ],
+    "decision": {
+      "outcome": "NOT_SUBMITTED",
+      "source": "conduit",
+      "reasoning": "Disease stage not documented; required criterion unresolved"
+    }
+  }
+]
