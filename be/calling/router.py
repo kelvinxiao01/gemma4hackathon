@@ -40,6 +40,9 @@ router = APIRouter(tags=["calls"])
 class CallingServices:
     coordinator: CallCoordinator
     criteria_repository: CriteriaRepository
+    # The normal backend leaves this unset.  The synthetic local-demo harness
+    # sets one destination so it cannot be repurposed to dial arbitrary numbers.
+    allowed_destination: str | None = None
 
 
 def build_calling_services() -> CallingServices:
@@ -115,6 +118,12 @@ async def create_call(
     request: Request,
     services: CallingServices = Depends(get_calling_services),
 ) -> CallAccepted:
+    if (services.allowed_destination is not None
+            and call.to_phone_number != services.allowed_destination):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="this synthetic demo backend is limited to its configured destination",
+        )
     try:
         record = await services.coordinator.create_call(call)
     except ActiveCallError as exc:

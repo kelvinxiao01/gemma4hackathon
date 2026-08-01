@@ -91,7 +91,7 @@ uv run python -m docsearch.serve
 ```bash
 cd voice
 uv sync
-uv run python src/agent.py dev
+lk agent dev
 ```
 
 Launch one synthetic demo call after the backend and worker report ready:
@@ -111,6 +111,11 @@ curl --request POST http://127.0.0.1:8000/calls \
 The response is `202` and includes a `call_id` and `status_url`. Poll the URL
 to follow the lifecycle. Only one call can be active at a time; a concurrent
 launch returns `409`.
+
+To test the full outbound phone path without Tross credentials, use the
+[Tross-free synthetic phone-test runbook](be/README.md#tross-free-synthetic-phone-test).
+It starts a separate allowlisted local backend with fixed synthetic context;
+do not run it alongside the regular backend shown above.
 
 ## Configuration
 
