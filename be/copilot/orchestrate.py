@@ -10,6 +10,7 @@ where the events come from and nothing about what the dashboard renders.
 """
 
 import json
+import os
 import threading
 from datetime import datetime, timedelta
 
@@ -17,7 +18,11 @@ from . import tracker
 
 FIXTURES = tracker.FIXTURES
 
-PAYER_DELAY = 8.0
+# Seconds the simulated payer takes to answer a submission. Configurable
+# because a submitted patient whose story is meant to end at the human gate
+# must not answer itself while someone is still narrating it. Set
+# CONDUIT_PAYER_DELAY high to park every submission at `submitted`.
+PAYER_DELAY = float(os.environ.get("CONDUIT_PAYER_DELAY", "8"))
 
 # Paced so the whole booking reads as a live call rather than a jump cut.
 CALL_STEPS = [
