@@ -1,7 +1,24 @@
 [project]
 name = "be"
 version = "0.1.0"
-description = "Add your description here"
+description = "Local policy-document retrieval for the prior-authorization copilot"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "httpx[http2]>=0.27",
+    "numpy>=2.0",
+    "pdfplumber>=0.11",
+    "trafilatura>=2.0",
+    "fastapi>=0.115",
+    "uvicorn>=0.32",
+]
+
+# No [build-system] on purpose: uv treats this as a virtual project, installing
+# dependencies without building a package. Adding one forces package discovery
+# against a layout that does not match name="be".
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
