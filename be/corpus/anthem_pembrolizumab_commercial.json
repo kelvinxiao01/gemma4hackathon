@@ -6,8 +6,9 @@
  "plan_type": "commercial",
  "doc_url": "https://www.anthem.com/content/dam/digital/docs/pharmacy-information/clinical-criteria/Keytruda.pdf",
  "fmt": "pdf",
+ "scope": "dedicated",
  "source_sha256": "878b9b0612575040e801bb4602fc33239a0d0331d082dbba0ea02a19b537c0f0",
- "fetched_at": "2026-08-01T08:23:23Z",
+ "fetched_at": "2026-08-01T08:50:44Z",
  "n_pages": 33,
  "pages": [
   {

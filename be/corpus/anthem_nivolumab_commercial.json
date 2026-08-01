@@ -6,8 +6,9 @@
  "plan_type": "commercial",
  "doc_url": "https://www.anthem.com/content/dam/digital/docs/pharmacy-information/clinical-criteria/Opdivo.pdf",
  "fmt": "pdf",
+ "scope": "dedicated",
  "source_sha256": "c11298cf85d8e78d41ddccb977aabb771412b541769249d15792ce2f96499064",
- "fetched_at": "2026-08-01T08:23:25Z",
+ "fetched_at": "2026-08-01T08:51:26Z",
  "n_pages": 30,
  "pages": [
   {

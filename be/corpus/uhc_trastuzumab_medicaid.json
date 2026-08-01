@@ -1,13 +1,14 @@
 {
  "payer": "uhc",
  "payer_name": "UnitedHealthcare",
- "drug": "pembrolizumab",
- "brand_name": "Keytruda",
+ "drug": "trastuzumab",
+ "brand_name": "Herceptin",
  "plan_type": "medicaid",
  "doc_url": "https://www.uhcprovider.com/content/dam/provider/docs/public/policies/medicaid-comm-plan/oncology-medication-clinical-coverage-policy-cs.pdf",
  "fmt": "pdf",
+ "scope": "omnibus",
  "source_sha256": "76f6acaf246d4e5aafddd57cd900c89896fccddce5a69a19b163333ecbcda45f",
- "fetched_at": "2026-08-01T08:23:28Z",
+ "fetched_at": "2026-08-01T08:51:28Z",
  "n_pages": 7,
  "pages": [
   {

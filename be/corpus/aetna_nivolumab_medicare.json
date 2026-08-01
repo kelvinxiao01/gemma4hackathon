@@ -6,8 +6,9 @@
  "plan_type": "medicare",
  "doc_url": "https://www.aetna.com/content/dam/aetna/pdfs/aetnacom/healthcare-professionals/documents-forms/Opdivo-2345-A-Aetna-MedB.pdf",
  "fmt": "pdf",
+ "scope": "dedicated",
  "source_sha256": "8fa569e6f81997a1b74d3b992105afd5a623485ad38b3ec4993419958f216510",
- "fetched_at": "2026-08-01T08:23:12Z",
+ "fetched_at": "2026-08-01T08:51:15Z",
  "n_pages": 23,
  "pages": [
   {

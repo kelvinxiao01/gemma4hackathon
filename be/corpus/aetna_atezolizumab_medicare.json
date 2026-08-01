@@ -6,8 +6,9 @@
  "plan_type": "medicare",
  "doc_url": "https://www.aetna.com/content/dam/aetna/pdfs/aetnacom/healthcare-professionals/documents-forms/Tecentriq-2132-A-Aetna-MedB.pdf",
  "fmt": "pdf",
+ "scope": "dedicated",
  "source_sha256": "13a92c14de103e8ae1ac4aaadfd863b508543c985a3c3edd212bc01acf807c0f",
- "fetched_at": "2026-08-01T08:23:21Z",
+ "fetched_at": "2026-08-01T08:51:23Z",
  "n_pages": 9,
  "pages": [
   {

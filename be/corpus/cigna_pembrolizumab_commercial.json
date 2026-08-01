@@ -6,8 +6,9 @@
  "plan_type": "commercial",
  "doc_url": "https://static.cigna.com/assets/chcp/pdf/coveragePolicies/pharmacy/ph_1403_coveragepositioncriteria_oncology.pdf",
  "fmt": "pdf",
+ "scope": "omnibus",
  "source_sha256": "e4d0139cff19c40c514ce4f7ccd9cd0e5de4a2f38e3c5c4c89e74ff504d13847",
- "fetched_at": "2026-08-01T08:23:27Z",
+ "fetched_at": "2026-08-01T08:50:46Z",
  "n_pages": 50,
  "pages": [
   {

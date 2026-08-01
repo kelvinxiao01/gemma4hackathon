@@ -6,8 +6,9 @@
  "plan_type": "commercial",
  "doc_url": "https://www.aetna.com/cpb/medical/data/800_899/0890.html",
  "fmt": "html",
- "source_sha256": "42d6f43804139b8f2ddb2e8588039b793b91e25367537e6e8d8eeaa3acd28623",
- "fetched_at": "2026-08-01T08:22:55Z",
+ "scope": "dedicated",
+ "source_sha256": "ac474da36226713ab2deef7a01150fc326076ca0beccff85c239b4ed0522b0a9",
+ "fetched_at": "2026-08-01T08:50:32Z",
  "n_pages": 1,
  "pages": [
   {

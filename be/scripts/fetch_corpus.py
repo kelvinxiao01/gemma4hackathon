@@ -21,27 +21,57 @@ import trafilatura
 
 CORPUS = Path(__file__).resolve().parent.parent / "corpus"
 
-# (payer, payer_name, drug, brand, plan_type, fmt, url)
+# Every row comes from the payer seed lists, restricted to rows that are
+# clinical criteria, active, non-virtual, and carry a real URL. Do not add a row
+# the seed data does not support.
+#
+# scope is the honest answer to "is this document about this drug?":
+#   dedicated - the whole document covers this drug
+#   omnibus   - a multi-drug policy where this drug is one entry among many, so
+#               the drug label is document-level and NOT true of every chunk
+#
+# (payer, payer_name, drug, brand, plan_type, fmt, scope, url)
 DOCS = [
-    ("aetna", "Aetna", "pembrolizumab", "Keytruda", "commercial", "html",
+    # Pembrolizumab / Keytruda. UHC publishes no pembrolizumab policy at all:
+    # its seed rows are NO_DOCUMENT_AVAILABLE with index_virtual=TRUE.
+    ("aetna", "Aetna", "pembrolizumab", "Keytruda", "commercial", "html", "dedicated",
      "https://www.aetna.com/cpb/medical/data/800_899/0890.html"),
-    ("aetna", "Aetna", "nivolumab", "Opdivo", "commercial", "html",
-     "https://www.aetna.com/cpb/medical/data/800_899/0892.html"),
-    ("aetna", "Aetna", "nivolumab", "Opdivo", "medicare", "pdf",
-     "https://www.aetna.com/content/dam/aetna/pdfs/aetnacom/healthcare-professionals/documents-forms/Opdivo-2345-A-Aetna-MedB.pdf"),
-    ("aetna", "Aetna", "atezolizumab", "Tecentriq", "medicare", "pdf",
-     "https://www.aetna.com/content/dam/aetna/pdfs/aetnacom/healthcare-professionals/documents-forms/Tecentriq-2132-A-Aetna-MedB.pdf"),
-    ("anthem", "Anthem", "pembrolizumab", "Keytruda", "commercial", "pdf",
+    ("aetna", "Aetna", "pembrolizumab", "Keytruda", "medicare", "pdf", "dedicated",
+     "https://www.aetna.com/content/dam/aetna/pdfs/aetnacom/healthcare-professionals/documents-forms/Keytruda-1980-A-Aetna-MedB.pdf"),
+    ("anthem", "Anthem", "pembrolizumab", "Keytruda", "commercial", "pdf", "dedicated",
      "https://www.anthem.com/content/dam/digital/docs/pharmacy-information/clinical-criteria/Keytruda.pdf"),
-    ("anthem", "Anthem", "nivolumab", "Opdivo", "commercial", "pdf",
-     "https://www.anthem.com/content/dam/digital/docs/pharmacy-information/clinical-criteria/Opdivo.pdf"),
-    ("anthem", "Anthem", "atezolizumab", "Tecentriq", "commercial", "pdf",
-     "https://www.anthem.com/content/dam/digital/docs/pharmacy-information/clinical-criteria/Atezolizumab.pdf"),
-    ("cigna", "Cigna", "pembrolizumab", "Keytruda", "commercial", "pdf",
+    ("cigna", "Cigna", "pembrolizumab", "Keytruda", "commercial", "pdf", "omnibus",
      "https://static.cigna.com/assets/chcp/pdf/coveragePolicies/pharmacy/ph_1403_coveragepositioncriteria_oncology.pdf"),
-    ("uhc", "UnitedHealthcare", "pembrolizumab", "Keytruda", "commercial", "pdf",
+
+    # Ustekinumab / Stelara. The only drug here with a dedicated document at all
+    # four payers, so it carries the cross-payer comparison without dilution.
+    ("aetna", "Aetna", "ustekinumab", "Stelara", "commercial", "html", "dedicated",
+     "https://www.aetna.com/cpb/medical/data/900_999/0912.html"),
+    ("anthem", "Anthem", "ustekinumab", "Stelara", "commercial", "pdf", "dedicated",
+     "https://www.anthem.com/content/dam/digital/docs/pharmacy-information/clinical-criteria/ustekinumab.pdf"),
+    ("cigna", "Cigna", "ustekinumab", "Stelara", "commercial", "pdf", "dedicated",
+     "https://static.cigna.com/assets/chcp/pdf/coveragePolicies/pharmacy/ip_0686_coveragepositioncriteria_inflammatory_conditions_stelara_intravenous.pdf"),
+    ("uhc", "UnitedHealthcare", "ustekinumab", "Stelara", "commercial", "pdf", "dedicated",
+     "https://www.uhcprovider.com/content/dam/provider/docs/public/policies/comm-medical-drug/ustekinumab.pdf"),
+
+    # Nivolumab / Opdivo and atezolizumab / Tecentriq, for oncology depth.
+    ("aetna", "Aetna", "nivolumab", "Opdivo", "commercial", "html", "dedicated",
+     "https://www.aetna.com/cpb/medical/data/800_899/0892.html"),
+    ("aetna", "Aetna", "nivolumab", "Opdivo", "medicare", "pdf", "dedicated",
+     "https://www.aetna.com/content/dam/aetna/pdfs/aetnacom/healthcare-professionals/documents-forms/Opdivo-2345-A-Aetna-MedB.pdf"),
+    ("aetna", "Aetna", "atezolizumab", "Tecentriq", "medicare", "pdf", "dedicated",
+     "https://www.aetna.com/content/dam/aetna/pdfs/aetnacom/healthcare-professionals/documents-forms/Tecentriq-2132-A-Aetna-MedB.pdf"),
+    ("anthem", "Anthem", "nivolumab", "Opdivo", "commercial", "pdf", "dedicated",
+     "https://www.anthem.com/content/dam/digital/docs/pharmacy-information/clinical-criteria/Opdivo.pdf"),
+    ("anthem", "Anthem", "atezolizumab", "Tecentriq", "commercial", "pdf", "dedicated",
+     "https://www.anthem.com/content/dam/digital/docs/pharmacy-information/clinical-criteria/Atezolizumab.pdf"),
+
+    # UHC's oncology policy. The seed maps it to trastuzumab, not pembrolizumab;
+    # labelling it pembrolizumab would contradict the source data. Its text
+    # covers 16 agents, so it is an omnibus regardless of the seed's URL sharing.
+    ("uhc", "UnitedHealthcare", "trastuzumab", "Herceptin", "commercial", "pdf", "omnibus",
      "https://www.uhcprovider.com/content/dam/provider/docs/public/policies/comm-medical-drug/oncology-medication-clinical-coverage-policy.pdf"),
-    ("uhc", "UnitedHealthcare", "pembrolizumab", "Keytruda", "medicaid", "pdf",
+    ("uhc", "UnitedHealthcare", "trastuzumab", "Herceptin", "medicaid", "pdf", "omnibus",
      "https://www.uhcprovider.com/content/dam/provider/docs/public/policies/medicaid-comm-plan/oncology-medication-clinical-coverage-policy-cs.pdf"),
 ]
 
@@ -74,7 +104,8 @@ AETNA_DELAY = 8  # Aetna tolerated this across two full runs; the envelope is ~5
 # A duplicate key would silently overwrite an earlier document while both rows
 # report PASS, and a fmt that disagrees with the URL means the row was mistyped.
 assert len({(d[0], d[2], d[4]) for d in DOCS}) == len(DOCS), "duplicate payer/drug/plan_type"
-assert all(d[6].rsplit(".", 1)[-1] == d[5] for d in DOCS), "fmt disagrees with URL extension"
+assert all(d[7].rsplit(".", 1)[-1] == d[5] for d in DOCS), "fmt disagrees with URL extension"
+assert all(d[6] in ("dedicated", "omnibus") for d in DOCS), "bad scope"
 
 
 class Rejected(Exception):
@@ -181,7 +212,7 @@ def main() -> int:
 
     with httpx.Client(http2=True, headers=CHROME_HEADERS,
                       follow_redirects=True, timeout=30) as client:
-        for payer, payer_name, drug, brand, plan_type, fmt, url in DOCS:
+        for payer, payer_name, drug, brand, plan_type, fmt, scope, url in DOCS:
             key = f"{payer}_{drug}_{plan_type}"
             out = CORPUS / f"{key}.json"
             print(f"--> {key} ({fmt})")
@@ -215,6 +246,7 @@ def main() -> int:
                 "drug": drug, "brand_name": brand, "plan_type": plan_type,
                 "doc_url": url,  # seed URL: stable across re-runs, unlike the redirect target
                 "fmt": fmt,  # html is unpaginated, so its page 1 is not a citable page
+                "scope": scope,  # omnibus means the drug label is not true of every chunk
                 "source_sha256": hashlib.sha256(body).hexdigest(),
                 "fetched_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "n_pages": len(pages), "pages": pages,

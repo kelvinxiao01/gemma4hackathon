@@ -6,8 +6,9 @@
  "plan_type": "commercial",
  "doc_url": "https://www.anthem.com/content/dam/digital/docs/pharmacy-information/clinical-criteria/Atezolizumab.pdf",
  "fmt": "pdf",
+ "scope": "dedicated",
  "source_sha256": "e126e5d22adb1d144273847bf255466c0d618cb6a0d055c9de6c035055597f8d",
- "fetched_at": "2026-08-01T08:23:25Z",
+ "fetched_at": "2026-08-01T08:51:26Z",
  "n_pages": 10,
  "pages": [
   {
