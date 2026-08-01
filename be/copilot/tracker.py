@@ -31,7 +31,9 @@ DISCLAIMER = "Decision support for human review. Not a coverage determination."
 DETERMINATION_TEXT = {
     "QUALIFIES": "Meets the payer's published criteria for submission",
     "NEEDS_REVIEW": "Unresolved criteria, routed to specialist review",
-    "NOT_QUALIFIED": "Not submitted, criteria not met",
+    # Spaced hyphen, not a comma: this exact string is the pre-submission
+    # negative outcome and the receipt prints it verbatim.
+    "NOT_QUALIFIED": "Not submitted - criteria not met",
 }
 
 # Closing line for a seeded case that was already finished before the demo.
