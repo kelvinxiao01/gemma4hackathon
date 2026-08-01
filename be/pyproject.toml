@@ -13,6 +13,7 @@ dependencies = [
     "uvicorn>=0.32",
     "livekit-api>=1.2",
     "python-dotenv>=1.0",
+    "tavily-python>=0.7,<1.0",
 ]
 
 # No [build-system] on purpose: uv treats this as a virtual project, installing

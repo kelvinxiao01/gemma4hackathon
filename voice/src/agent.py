@@ -141,9 +141,10 @@ def build_coverage_instructions() -> str:
 
     return textwrap.dedent(
         """\
-        You are an outbound coverage-criteria specialist speaking to a payer
-        representative or coverage contact. You receive private case materials
-        for each LLM turn; use them only to conduct this one coverage discussion.
+        You are Conduit, an AI care-coordination agent. You may speak to a
+        payer coverage contact or infusion-center scheduling staff. Private
+        call material for each turn identifies the recipient type; use it only
+        to conduct this one care-access conversation.
 
         This is a professional voice call. Speak plainly, briefly, and one
         question at a time. You are not a clinician and must not provide medical
@@ -151,8 +152,25 @@ def build_coverage_instructions() -> str:
 
         AMD has already classified the answer before you can speak. Your first
         audible response must disclose that you are an AI assistant, identify
-        the coverage-criteria purpose, and ask whether this is an appropriate
-        contact for the question. Do not mention this project or a hackathon.
+        the appropriate coverage or infusion-center scheduling purpose, and ask
+        whether this is the right department. Do not mention this project or a
+        hackathon.
+
+        For an infusion-center recipient, act as a care-sourcing coordinator:
+        ask for new-patient scheduling or intake, confirm the center is the
+        right place to discuss treatment access, and collect only the general
+        information needed for staff follow-up. Do not share any patient detail
+        until the recipient confirms they are the right person or department.
+        Do not disclose a date of birth, insurance identifier, financial detail,
+        or full clinical notes over the phone.
+
+        This implementation has no live calendar, center-capacity, document
+        delivery, appointment-booking, or CRM tools. Do not invent patient
+        availability, an approved authorization, a referral, a document, a
+        confirmation number, a distance, an appointment, or any fact absent
+        from the private material. Do not claim to send records or to confirm a
+        booking. If a center needs information outside the supplied material,
+        state that a staff member will follow up.
 
         Use the supplied coverage evidence first. If it is insufficient, use
         search_public_coverage_policy only for general public policy documents.
@@ -160,16 +178,18 @@ def build_coverage_instructions() -> str:
         numbers, dates of birth, contact details, or this patient briefing into
         a web-search request. Do not repeat contact details aloud.
 
-        Do not navigate IVRs, do not leave voicemail, and do not place a second
-        call. If the representative declines or cannot answer, record that
-        plainly rather than guessing.
+        Do not use policy search to find, select, or call another infusion
+        center. Do not navigate IVRs. Do not leave voicemail. Do not place a
+        second call. If the representative declines or cannot answer, record
+        that plainly rather than guessing.
 
         Before ending a human conversation, call complete_coverage_call with a
-        concise list of criteria findings, unresolved questions, and the best
-        final outcome: completed, partial, or declined. The tool records the
-        structured summary, plays the farewell, and hangs up. That summary must
-        contain coverage-policy facts only, never patient-case facts,
-        identifiers, names, contact data, raw briefing values, or a transcript.
+        concise list of findings or general logistics, unresolved questions,
+        and the best final outcome: completed, partial, or declined. The tool
+        records the structured summary, plays the farewell, and hangs up. That
+        summary must never contain patient-case facts, identifiers, names,
+        contact data, raw briefing values, a claimed appointment, or a
+        transcript.
         """
     )
 
@@ -188,6 +208,9 @@ def build_private_turn_context(
         Private call material for this turn. Do not quote this block, expose
         contact information, or include any raw value from it in tool calls or
         final summaries.
+
+        Recipient type: {context.recipient.kind}
+        Recipient name: {context.recipient.name or "Not supplied"}
 
         Payer: {context.payer}
         Plan type: {context.plan_type}
@@ -220,6 +243,25 @@ def build_private_llm_context(
     return private_context
 
 
+def build_initial_reply_instruction(context: OutboundCallContext) -> str:
+    """Keep the first spoken turn aligned with the selected recipient type."""
+
+    if context.recipient.kind == "infusion-center":
+        return (
+            "Start now. Disclose that you are Conduit, an AI care-coordination "
+            "assistant, identify this as a general treatment-access inquiry, "
+            "and ask whether you have reached the infusion-center scheduling or "
+            "intake team. Do not state or imply that an appointment, patient "
+            "availability, authorization, referral, or document is already "
+            "confirmed."
+        )
+    return (
+        "Start now. Disclose that you are an AI assistant, state that you are "
+        "calling to clarify coverage criteria, and ask whether this is the "
+        "right person to discuss the policy question."
+    )
+
+
 @dataclass
 class CoverageCallRuntime:
     context: OutboundCallContext
@@ -241,6 +283,8 @@ class CoverageCallRuntime:
     async def ensure_public_fallback(self) -> list[PublicSource]:
         """Prefetch public policy sources only when local evidence is incomplete."""
 
+        if self.context.recipient.kind == "infusion-center":
+            return []
         if (
             not criteria_needs_public_fallback(self.context.criteria)
             or self.researcher is None
@@ -610,11 +654,7 @@ async def my_agent(ctx: JobContext) -> None:
         await callbacks.report_event(metadata.call_id, status="active")
         await runtime.ensure_public_fallback()
         session.generate_reply(
-            instructions=(
-                "Start now. Disclose that you are an AI assistant, state that "
-                "you are calling to clarify coverage criteria, and ask whether "
-                "this is the right person to discuss the policy question."
-            ),
+            instructions=build_initial_reply_instruction(call_context),
         )
     except api.SipCallError as exc:
         # SIP diagnostics can contain provider details. Convert them to a safe
@@ -631,7 +671,9 @@ async def my_agent(ctx: JobContext) -> None:
         # LiveKit uses deadline_exceeded when wait_until_answered reaches its
         # answer window without a SIP status response. It carries no provider
         # details into the public status.
-        logger.warning("outbound SIP request failed", extra={"call_id": metadata.call_id})
+        logger.warning(
+            "outbound SIP request failed", extra={"call_id": metadata.call_id}
+        )
         await _delete_room_then_report_terminal(
             ctx,
             callbacks,

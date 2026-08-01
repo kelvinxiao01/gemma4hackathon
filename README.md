@@ -148,12 +148,23 @@ Voice requires:
 Backend requires:
 
 - `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`
+- `TAVILY_API_KEY` for the location-only infusion-center discovery endpoint
 - optionally `PAYER_CRITERIA_DB_PATH` when the teammate-owned SQLite database
   and its schema are available.
 
 The database is intentionally not created or migrated by this project. Until an
 adapter is implemented against the teammate's real schema, an unavailable
 repository result makes the worker use restricted Tavily search instead.
+
+## Infusion-center discovery
+
+The backend also supports a separate, explicit discovery-to-dial flow for the
+hackathon's ZIP `10001`: Tavily returns up to three callable public candidates,
+the user selects one, and a `confirm_destination` flag is required before the
+normal LiveKit/Twilio call flow begins. The discovery query contains only the
+ZIP; it never includes synthetic case or patient context. See the
+[backend runbook](be/README.md#find-and-call-an-infusion-center-near-zip-10001)
+for the `discover` and `launch --confirm` commands.
 
 ## Twilio + LiveKit setup
 
@@ -203,8 +214,10 @@ uploads. LiveKit documents a 30-day observability retention period.
 - The agent waits for answering-machine detection before it speaks. It proceeds
   only for human or uncertain classifications; voicemail, unavailable mailboxes,
   and IVRs end without a message.
-- Tavily queries contain payer, plan, drug, and policy terms only—not synthetic
-  case context—and are limited to official payer domains plus `cms.gov`.
+- Voice-policy Tavily queries contain payer, plan, drug, and policy terms
+  only—not synthetic case context—and are limited to official payer domains
+  plus `cms.gov`. Backend facility-discovery Tavily queries contain only the
+  requested ZIP code.
 - This is coverage-criteria research support, not a clinical recommendation or
   automated prior-authorization decision.
 

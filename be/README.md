@@ -50,6 +50,58 @@ masked destination, lifecycle state, outcome, sanitized summary, unresolved
 questions, and public sources; it never returns the full synthetic-case payload or a
 transcript. Only one non-terminal call is allowed at a time.
 
+## Find and call an infusion center near ZIP 10001
+
+Facility discovery is a separate, location-only flow. It sends Tavily a fixed
+query based on the supplied five-digit ZIP, returns at most three candidates
+with a normalized US phone number and source URL, and retains the selection in
+memory for ten minutes. It does not send any synthetic case, patient, provider,
+or caller data to Tavily.
+
+Add the same `TAVILY_API_KEY` used by the worker to `be/.env.local`, then run
+the normal backend (not `scripts/demo_call.py serve`):
+
+```bash
+cd be
+uv sync
+uv run python -m docsearch.serve
+```
+
+In another terminal, inspect the candidates. The current hackathon default is
+ZIP `10001`:
+
+```bash
+cd be
+uv run python scripts/facility_call.py discover --zip 10001
+```
+
+To place a call, rerun discovery, select the displayed candidate position, and
+explicitly acknowledge the destination. The `case_id` derives the call's payer,
+plan, and drug from `fixtures/cases.json`; it is not included in the Tavily
+query.
+
+```bash
+cd be
+uv run python scripts/facility_call.py launch \
+  --zip 10001 \
+  --candidate 1 \
+  --case-id case-002 \
+  --confirm
+```
+
+The script uses the normal local backend's `POST /facility-searches` followed
+by `POST /facility-searches/{search_id}/calls`. The second route accepts only a
+candidate returned by that short-lived search and requires
+`confirm_destination: true`; it never accepts a free-form phone number. Tavily
+ranking is location-relevant search ranking, not a calculated geospatial
+distance, so verify the shown source before confirming a call.
+
+Twilio Trial accounts cannot call an arbitrary discovered center: Twilio must
+already recognize the destination as verified. Upgrade the account before
+calling real facilities, or continue using the single verified demo number and
+the fixture-backed harness below. The existing `demo_call.py serve` allowlist
+remains intentionally unable to dial a discovered number.
+
 ## Synthetic cases
 
 `patient_id` is a fixture `case_id`. Its payer, plan type, and drug must match
@@ -105,7 +157,8 @@ Do not run the regular backend on port 8000 at the same time.
 
 ## Environment
 
-See [`.env.example`](.env.example). Only LiveKit settings are needed for calls.
+See [`.env.example`](.env.example). LiveKit settings are needed for calls;
+`TAVILY_API_KEY` is additionally required for facility discovery.
 `PAYER_CRITERIA_DB_PATH` is optional until
 the teammate-owned schema is available. Do not create, migrate, copy, or infer
 tables for that database here. Once it arrives, implement its parameterized

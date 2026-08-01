@@ -22,16 +22,29 @@ from .criteria import (
     UnavailableCriteriaRepository,
     repository_health,
 )
+from .facilities import (
+    FacilityCandidateNotFoundError,
+    FacilityDiscoveryUnavailableError,
+    FacilitySearchNotFoundError,
+    FacilitySearchService,
+    TavilyFacilityDiscovery,
+    UnavailableFacilityDiscovery,
+)
 from .livekit import LiveKitDispatcher
 from .models import (
     AgentEvent,
     CallAccepted,
+    CallRecipient,
     CallRequest,
     CallStatusResponse,
+    FacilityCallRequest,
+    FacilityCandidateResponse,
+    FacilitySearchRequest,
+    FacilitySearchResponse,
     InternalContextResponse,
+    RecipientKind,
 )
-from .synthetic_cases import SyntheticCasePatientSource
-
+from .synthetic_cases import SyntheticCaseError, SyntheticCasePatientSource
 
 router = APIRouter(tags=["calls"])
 
@@ -40,6 +53,10 @@ router = APIRouter(tags=["calls"])
 class CallingServices:
     coordinator: CallCoordinator
     criteria_repository: CriteriaRepository
+    # A separate location-only service keeps web discovery independent of
+    # synthetic case data and the coordinator's private call context.
+    facility_searches: FacilitySearchService | None = None
+    case_source: SyntheticCasePatientSource | None = None
     # The normal backend leaves this unset.  The synthetic local-demo harness
     # sets one destination so it cannot be repurposed to dial arbitrary numbers.
     allowed_destination: str | None = None
@@ -51,16 +68,23 @@ def build_calling_services() -> CallingServices:
     # Resolve relative to be/ rather than the process working directory.
     # `override=False` preserves deliberately injected environment values in
     # deployment and tests.
-    load_dotenv(Path(__file__).resolve().parent.parent / ".env.local",
-                override=False)
+    load_dotenv(Path(__file__).resolve().parent.parent / ".env.local", override=False)
     # Keep the eventual configuration seam visible without reading, creating,
     # or guessing anything about the teammate-owned SQLite schema.
     criteria_repository = UnavailableCriteriaRepository(
-        readiness_mode=("awaiting-schema" if os.getenv("PAYER_CRITERIA_DB_PATH")
-                        else "unavailable"),
+        readiness_mode=(
+            "awaiting-schema" if os.getenv("PAYER_CRITERIA_DB_PATH") else "unavailable"
+        ),
+    )
+    case_source = SyntheticCasePatientSource()
+    tavily_key = (os.getenv("TAVILY_API_KEY") or "").strip()
+    facility_discovery = (
+        TavilyFacilityDiscovery(api_key=tavily_key)
+        if tavily_key
+        else UnavailableFacilityDiscovery()
     )
     coordinator = CallCoordinator(
-        patient_source=SyntheticCasePatientSource(),
+        patient_source=case_source,
         criteria_repository=criteria_repository,
         dispatcher=LiveKitDispatcher(
             url=os.getenv("LIVEKIT_URL"),
@@ -71,6 +95,8 @@ def build_calling_services() -> CallingServices:
     return CallingServices(
         coordinator=coordinator,
         criteria_repository=criteria_repository,
+        facility_searches=FacilitySearchService(discovery=facility_discovery),
+        case_source=case_source,
     )
 
 
@@ -89,7 +115,15 @@ def install_calling_router(
 
 def calling_health(app: FastAPI) -> dict[str, object]:
     services = _services_from_app(app)
-    return {"criteria_repository": repository_health(services.criteria_repository)}
+    facility_searches = services.facility_searches
+    return {
+        "criteria_repository": repository_health(services.criteria_repository),
+        "facility_discovery": (
+            facility_searches.health()
+            if facility_searches is not None
+            else {"ready": False, "mode": "unavailable"}
+        ),
+    }
 
 
 def _services_from_app(app: FastAPI) -> CallingServices:
@@ -114,14 +148,119 @@ async def create_call(
     request: Request,
     services: CallingServices = Depends(get_calling_services),
 ) -> CallAccepted:
-    if (services.allowed_destination is not None
-            and call.to_phone_number != services.allowed_destination):
+    if (
+        services.allowed_destination is not None
+        and call.to_phone_number != services.allowed_destination
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="this synthetic demo backend is limited to its configured destination",
         )
     try:
         record = await services.coordinator.create_call(call)
+    except ActiveCallError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="an outbound call is already active",
+        ) from exc
+    return CallAccepted(
+        call_id=record.call_id,
+        status=record.status,
+        status_url=str(request.url_for("get_call", call_id=record.call_id)),
+    )
+
+
+@router.post(
+    "/facility-searches",
+    response_model=FacilitySearchResponse,
+)
+async def create_facility_search(
+    search: FacilitySearchRequest,
+    services: CallingServices = Depends(get_calling_services),
+) -> FacilitySearchResponse:
+    """Find at most three location-only candidates; never send case data to Tavily."""
+
+    if services.facility_searches is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="facility discovery is not configured",
+        )
+    try:
+        result = await services.facility_searches.search(zip_code=search.zip_code)
+    except FacilityDiscoveryUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="facility discovery is unavailable",
+        ) from exc
+    return FacilitySearchResponse(
+        search_id=result.search_id,
+        zip_code=result.zip_code,
+        candidates=[
+            FacilityCandidateResponse(
+                candidate_id=candidate_id,
+                name=candidate.name,
+                phone_e164=candidate.phone_e164,
+                source_url=candidate.source_url,
+            )
+            for candidate_id, candidate in result.candidates
+        ],
+    )
+
+
+@router.post(
+    "/facility-searches/{search_id}/calls",
+    response_model=CallAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def create_confirmed_facility_call(
+    search_id: str,
+    selection: FacilityCallRequest,
+    request: Request,
+    services: CallingServices = Depends(get_calling_services),
+) -> CallAccepted:
+    """Dispatch only a candidate the caller explicitly selected and confirmed."""
+
+    if services.facility_searches is None or services.case_source is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="facility calling is not configured",
+        )
+    try:
+        candidate = await services.facility_searches.selected_candidate(
+            search_id=search_id,
+            candidate_id=selection.candidate_id,
+        )
+    except (FacilitySearchNotFoundError, FacilityCandidateNotFoundError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="facility candidate is unavailable",
+        ) from exc
+    if (
+        services.allowed_destination is not None
+        and candidate.phone_e164 != services.allowed_destination
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="this synthetic demo backend is limited to its configured destination",
+        )
+    try:
+        call = services.case_source.build_call_request(
+            to_phone_number=candidate.phone_e164,
+            case_id=selection.case_id,
+        )
+    except SyntheticCaseError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="the selected synthetic case is unavailable",
+        ) from exc
+    try:
+        record = await services.coordinator.create_call(
+            call,
+            recipient=CallRecipient(
+                kind=RecipientKind.INFUSION_CENTER,
+                name=candidate.name,
+            ),
+        )
     except ActiveCallError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -142,8 +281,9 @@ async def get_call(
     try:
         return await services.coordinator.public_status(call_id)
     except CallNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
-                            detail="call not found") from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="call not found"
+        ) from exc
 
 
 @router.get(
@@ -154,21 +294,26 @@ async def get_call(
 async def get_internal_context(
     call_id: str,
     x_call_context_token: str | None = Header(
-        default=None, alias="X-Call-Context-Token"),
+        default=None, alias="X-Call-Context-Token"
+    ),
     services: CallingServices = Depends(get_calling_services),
 ) -> InternalContextResponse:
     try:
         return await services.coordinator.internal_context(
-            call_id, x_call_context_token)
+            call_id, x_call_context_token
+        )
     except InvalidCapabilityError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
-                            detail="invalid call capability") from exc
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="invalid call capability"
+        ) from exc
     except ContextNotReadyError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT,
-                            detail="call context is not ready") from exc
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="call context is not ready"
+        ) from exc
     except CallNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
-                            detail="call not found") from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="call not found"
+        ) from exc
 
 
 @router.post(
@@ -180,18 +325,23 @@ async def post_agent_event(
     call_id: str,
     event: AgentEvent,
     x_call_context_token: str | None = Header(
-        default=None, alias="X-Call-Context-Token"),
+        default=None, alias="X-Call-Context-Token"
+    ),
     services: CallingServices = Depends(get_calling_services),
 ) -> CallStatusResponse:
     try:
         return await services.coordinator.apply_agent_event(
-            call_id, x_call_context_token, event)
+            call_id, x_call_context_token, event
+        )
     except InvalidCapabilityError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
-                            detail="invalid call capability") from exc
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="invalid call capability"
+        ) from exc
     except CallNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
-                            detail="call not found") from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="call not found"
+        ) from exc
     except InvalidStateTransitionError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT,
-                            detail="invalid call state transition") from exc
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="invalid call state transition"
+        ) from exc

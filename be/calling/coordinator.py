@@ -16,8 +16,10 @@ from typing import Any
 from .criteria import CriteriaRepository
 from .livekit import AgentDispatcher, DispatchRequest, RoomCleaner
 from .models import (
+    TERMINAL_STATUSES,
     AgentEvent,
     CallOutcome,
+    CallRecipient,
     CallRequest,
     CallStatus,
     CallStatusResponse,
@@ -25,11 +27,9 @@ from .models import (
     CriteriaEvidence,
     InternalContextResponse,
     PatientBrief,
-    TERMINAL_STATUSES,
     mask_phone_number,
 )
 from .patient_source import PatientSource
-
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +70,7 @@ class CallRecord:
     summary: CallSummary | None = None
     patient: PatientBrief | None = None
     criteria_evidence: list[CriteriaEvidence] | None = None
+    recipient: CallRecipient | None = None
     dispatch_in_progress: bool = False
     room_dispatched: bool = False
     room_cleanup_pending: bool = False
@@ -78,13 +79,20 @@ class CallRecord:
 _ALLOWED_TRANSITIONS: dict[CallStatus, frozenset[CallStatus]] = {
     CallStatus.PREPARING: frozenset({CallStatus.DISPATCHED, CallStatus.FAILED}),
     CallStatus.DISPATCHED: frozenset({CallStatus.DIALING, CallStatus.FAILED}),
-    CallStatus.DIALING: frozenset({
-        CallStatus.SCREENING, CallStatus.ACTIVE, CallStatus.FAILED}),
-    CallStatus.SCREENING: frozenset({
-        CallStatus.ACTIVE, CallStatus.SUMMARIZING, CallStatus.COMPLETED,
-        CallStatus.FAILED}),
-    CallStatus.ACTIVE: frozenset({
-        CallStatus.SUMMARIZING, CallStatus.COMPLETED, CallStatus.FAILED}),
+    CallStatus.DIALING: frozenset(
+        {CallStatus.SCREENING, CallStatus.ACTIVE, CallStatus.FAILED}
+    ),
+    CallStatus.SCREENING: frozenset(
+        {
+            CallStatus.ACTIVE,
+            CallStatus.SUMMARIZING,
+            CallStatus.COMPLETED,
+            CallStatus.FAILED,
+        }
+    ),
+    CallStatus.ACTIVE: frozenset(
+        {CallStatus.SUMMARIZING, CallStatus.COMPLETED, CallStatus.FAILED}
+    ),
     CallStatus.SUMMARIZING: frozenset({CallStatus.COMPLETED, CallStatus.FAILED}),
     CallStatus.COMPLETED: frozenset(),
     CallStatus.FAILED: frozenset(),
@@ -101,7 +109,9 @@ class CallCoordinator:
         criteria_repository: CriteriaRepository,
         dispatcher: AgentDispatcher,
         timeout_seconds: float = 300,
-        task_spawner: Callable[[Coroutine[Any, Any, Any]], object] = asyncio.create_task,
+        task_spawner: Callable[
+            [Coroutine[Any, Any, Any]], object
+        ] = asyncio.create_task,
         max_records: int = 50,
     ) -> None:
         self._patient_source = patient_source
@@ -113,14 +123,21 @@ class CallCoordinator:
         self._records: dict[str, CallRecord] = {}
         self._lock = asyncio.Lock()
 
-    async def create_call(self, request: CallRequest) -> CallRecord:
+    async def create_call(
+        self,
+        request: CallRequest,
+        *,
+        recipient: CallRecipient | None = None,
+    ) -> CallRecord:
         """Create a record and schedule preparation without awaiting I/O."""
 
         async with self._lock:
-            if any(record.status not in TERMINAL_STATUSES
-                   or record.dispatch_in_progress
-                   or record.room_cleanup_pending
-                   for record in self._records.values()):
+            if any(
+                record.status not in TERMINAL_STATUSES
+                or record.dispatch_in_progress
+                or record.room_cleanup_pending
+                for record in self._records.values()
+            ):
                 raise ActiveCallError("an outbound call is already active")
             self._prune_terminal_records_locked()
             now = _utcnow()
@@ -134,6 +151,7 @@ class CallCoordinator:
                 status=CallStatus.PREPARING,
                 created_at=now,
                 updated_at=now,
+                recipient=recipient or CallRecipient(),
             )
             self._records[call_id] = record
 
@@ -234,13 +252,15 @@ class CallCoordinator:
         )
 
     async def internal_context(
-        self, call_id: str, token: str | None,
+        self,
+        call_id: str,
+        token: str | None,
     ) -> InternalContextResponse:
         async with self._lock:
             record = self._require_authorized_locked(call_id, token)
             if record.patient is None or record.criteria_evidence is None:
                 raise ContextNotReadyError("call context is not ready")
-            if record.request is None:
+            if record.request is None or record.recipient is None:
                 raise ContextNotReadyError("call context is not ready")
             return InternalContextResponse(
                 call_id=record.call_id,
@@ -248,12 +268,12 @@ class CallCoordinator:
                 payer=record.request.payer,
                 plan_type=record.request.plan_type,
                 drug=record.request.drug,
+                recipient=record.recipient,
                 patient={
                     "quickview_data": record.patient.quickview_data,
                     "banner_data": record.patient.banner_data,
                 },
-                criteria=[_evidence_payload(item)
-                          for item in record.criteria_evidence],
+                criteria=[_evidence_payload(item) for item in record.criteria_evidence],
             )
 
     async def apply_agent_event(
@@ -347,7 +367,8 @@ class CallCoordinator:
                 return False
             if CallStatus.DISPATCHED not in _ALLOWED_TRANSITIONS[record.status]:
                 raise InvalidStateTransitionError(
-                    f"cannot transition {record.status.value} to dispatched")
+                    f"cannot transition {record.status.value} to dispatched"
+                )
             now = _utcnow()
             record.status = CallStatus.DISPATCHED
             record.updated_at = now
@@ -364,8 +385,10 @@ class CallCoordinator:
                 return None
             record.dispatch_in_progress = False
             record.room_dispatched = True
-            if (record.status in TERMINAL_STATUSES
-                    and record.outcome == CallOutcome.TIMEOUT):
+            if (
+                record.status in TERMINAL_STATUSES
+                and record.outcome == CallOutcome.TIMEOUT
+            ):
                 record.room_cleanup_pending = True
                 return record.room_name
             return None
@@ -406,7 +429,9 @@ class CallCoordinator:
 
         try:
             if not isinstance(self._dispatcher, RoomCleaner):
-                logger.warning("outbound_call_room_cleanup_unavailable call_id=%s", call_id)
+                logger.warning(
+                    "outbound_call_room_cleanup_unavailable call_id=%s", call_id
+                )
                 return
             try:
                 await self._dispatcher.delete_room(room_name)
@@ -425,13 +450,18 @@ class CallCoordinator:
                 record.room_cleanup_pending = False
 
     def _require_authorized_locked(
-        self, call_id: str, token: str | None,
+        self,
+        call_id: str,
+        token: str | None,
     ) -> CallRecord:
         record = self._records.get(call_id)
         if record is None:
             raise CallNotFoundError(call_id)
-        if (not token or not record.context_token
-                or not secrets.compare_digest(record.context_token, token)):
+        if (
+            not token
+            or not record.context_token
+            or not secrets.compare_digest(record.context_token, token)
+        ):
             raise InvalidCapabilityError("invalid call capability")
         return record
 
@@ -440,32 +470,45 @@ class CallCoordinator:
         if record.status in TERMINAL_STATUSES:
             # Repeating an identical terminal callback is harmless and lets the
             # worker retry a lost HTTP response without changing stored data.
-            if (event.status == record.status and event.outcome == record.outcome
-                    and (event.summary is None or event.summary == record.summary)):
+            if (
+                event.status == record.status
+                and event.outcome == record.outcome
+                and (event.summary is None or event.summary == record.summary)
+            ):
                 return
             raise InvalidStateTransitionError("call already reached a terminal state")
 
         if event.status not in _ALLOWED_TRANSITIONS[record.status]:
             raise InvalidStateTransitionError(
-                f"cannot transition {record.status.value} to {event.status.value}")
+                f"cannot transition {record.status.value} to {event.status.value}"
+            )
         if event.status == CallStatus.SUMMARIZING:
             if event.outcome is not None:
                 raise InvalidStateTransitionError(
-                    "a summarizing status must not include an outcome")
+                    "a summarizing status must not include an outcome"
+                )
         elif event.status in TERMINAL_STATUSES:
             if event.outcome is None:
-                raise InvalidStateTransitionError("a terminal status requires an outcome")
+                raise InvalidStateTransitionError(
+                    "a terminal status requires an outcome"
+                )
         elif event.outcome is not None or event.summary is not None:
             raise InvalidStateTransitionError(
-                "outcome and summary are only allowed for a terminal status")
+                "outcome and summary are only allowed for a terminal status"
+            )
 
     def _prune_terminal_records_locked(self) -> None:
-        terminal_records = [record for record in self._records.values()
-                            if record.status in TERMINAL_STATUSES]
+        terminal_records = [
+            record
+            for record in self._records.values()
+            if record.status in TERMINAL_STATUSES
+        ]
         excess = len(self._records) - self._max_records + 1
         if excess <= 0:
             return
-        for record in sorted(terminal_records, key=lambda item: item.updated_at)[:excess]:
+        for record in sorted(terminal_records, key=lambda item: item.updated_at)[
+            :excess
+        ]:
             self._records.pop(record.call_id, None)
 
     @staticmethod
@@ -474,6 +517,7 @@ class CallCoordinator:
 
         record.patient = None
         record.criteria_evidence = None
+        record.recipient = None
         record.context_token = None
         record.request = None
 
@@ -483,8 +527,9 @@ def _evidence_payload(evidence: CriteriaEvidence) -> dict[str, Any]:
         "text": evidence.text,
         "source_label": evidence.source_label,
         "source_url": evidence.source_url,
-        "effective_date": (evidence.effective_date.isoformat()
-                           if evidence.effective_date else None),
+        "effective_date": (
+            evidence.effective_date.isoformat() if evidence.effective_date else None
+        ),
     }
 
 
@@ -527,21 +572,29 @@ def _redact_summary(
         if text is None:
             return None
         for literal in literals:
-            text = re.sub(re.escape(literal), "[redacted]", text,
-                          flags=re.IGNORECASE)
+            text = re.sub(re.escape(literal), "[redacted]", text, flags=re.IGNORECASE)
         return text
 
-    sources = [source.model_copy(update={
-        "label": redact(source.label),
-        "url": redact(source.url),
-    }) for source in summary.public_sources]
-    return summary.model_copy(update={
-        "criteria_summary": [redact(line) or "[redacted]"
-                             for line in summary.criteria_summary],
-        "unresolved_questions": [redact(line) or "[redacted]"
-                               for line in summary.unresolved_questions],
-        "public_sources": sources,
-    })
+    sources = [
+        source.model_copy(
+            update={
+                "label": redact(source.label),
+                "url": redact(source.url),
+            }
+        )
+        for source in summary.public_sources
+    ]
+    return summary.model_copy(
+        update={
+            "criteria_summary": [
+                redact(line) or "[redacted]" for line in summary.criteria_summary
+            ],
+            "unresolved_questions": [
+                redact(line) or "[redacted]" for line in summary.unresolved_questions
+            ],
+            "public_sources": sources,
+        }
+    )
 
 
 def _patient_literals(patient: PatientBrief) -> tuple[str, ...]:
@@ -577,8 +630,11 @@ def _normalize_agent_event(event: AgentEvent) -> AgentEvent:
     instead of being guessed.
     """
 
-    if (event.status != CallStatus.FAILED or event.outcome is not None
-            or not event.error):
+    if (
+        event.status != CallStatus.FAILED
+        or event.outcome is not None
+        or not event.error
+    ):
         return event
     outcome = _sip_outcome_from_error(event.error)
     if outcome is None:
@@ -588,16 +644,36 @@ def _normalize_agent_event(event: AgentEvent) -> AgentEvent:
 
 def _sip_outcome_from_error(error: str) -> CallOutcome | None:
     normalized = error.casefold().replace("_", "-")
-    if any(marker in normalized for marker in (
-        "no answer", "no-answer", "noanswer", "sip 408", "status 408",
-    )):
+    if any(
+        marker in normalized
+        for marker in (
+            "no answer",
+            "no-answer",
+            "noanswer",
+            "sip 408",
+            "status 408",
+        )
+    ):
         return CallOutcome.NO_ANSWER
-    if any(marker in normalized for marker in (
-        "busy", "486", "temporarily unavailable", "sip 480", "status 480",
-    )):
+    if any(
+        marker in normalized
+        for marker in (
+            "busy",
+            "486",
+            "temporarily unavailable",
+            "sip 480",
+            "status 480",
+        )
+    ):
         return CallOutcome.UNAVAILABLE
-    if any(marker in normalized for marker in (
-        "carrier error", "trunk failure", "sip 5", "status 5",
-    )):
+    if any(
+        marker in normalized
+        for marker in (
+            "carrier error",
+            "trunk failure",
+            "sip 5",
+            "status 5",
+        )
+    ):
         return CallOutcome.CARRIER_ERROR
     return None
