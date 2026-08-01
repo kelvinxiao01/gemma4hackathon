@@ -540,7 +540,9 @@ def test_health_reports_calling_readiness_when_legacy_index_is_absent(
 
         assert payload["docsearch"] == "unavailable"
         assert payload["calling"] == {
-            "criteria_repository": {"ready": False, "mode": "unavailable"}}
+            "criteria_repository": {"ready": False, "mode": "unavailable"},
+            "facility_discovery": {"ready": False, "mode": "unavailable"},
+        }
     finally:
         assert deferred is not None
         deferred.close()

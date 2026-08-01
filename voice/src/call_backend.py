@@ -54,6 +54,31 @@ class CriteriaEvidence:
 
 
 @dataclass(frozen=True)
+class CallRecipient:
+    """The private recipient type that selects the appropriate call opening."""
+
+    kind: str = "payer"
+    name: str | None = None
+
+    @classmethod
+    def from_payload(cls, payload: object) -> CallRecipient:
+        # Older backend responses are payer-coverage calls by default. Facility
+        # calls must be explicit so an unrecognized recipient never receives a
+        # care-sourcing script.
+        if payload is None:
+            return cls()
+        if not isinstance(payload, Mapping):
+            raise BackendCallError("backend context has invalid recipient")
+        kind = _required_string(payload, "kind").lower()
+        if kind not in {"payer", "infusion-center"}:
+            raise BackendCallError("backend context has invalid recipient")
+        name = _optional_string(payload.get("name"))
+        if kind == "infusion-center" and name is None:
+            raise BackendCallError("backend context has invalid recipient")
+        return cls(kind=kind, name=name)
+
+
+@dataclass(frozen=True)
 class OutboundCallContext:
     """The minimum context an outbound worker may use during a call."""
 
@@ -62,6 +87,7 @@ class OutboundCallContext:
     payer: str
     plan_type: str
     drug: str
+    recipient: CallRecipient
     patient: dict[str, Any]
     criteria: tuple[CriteriaEvidence, ...]
 
@@ -94,6 +120,7 @@ class OutboundCallContext:
             payer=_required_string(payload, "payer").lower(),
             plan_type=_required_string(payload, "plan_type").lower(),
             drug=_required_string(payload, "drug"),
+            recipient=CallRecipient.from_payload(payload.get("recipient")),
             patient=patient,
             criteria=tuple(criteria),
         )

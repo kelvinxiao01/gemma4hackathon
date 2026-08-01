@@ -3,7 +3,8 @@
 This worker accepts only the `voice` agent dispatch created by the local backend.
 It fetches per-call context through a capability-token-protected local endpoint,
 dials through a LiveKit outbound SIP trunk, waits for answering-machine
-detection, and then runs a focused coverage-criteria conversation.
+detection, and then runs a focused coverage-criteria or infusion-center
+care-sourcing conversation.
 
 It uses direct provider integrations:
 
@@ -15,6 +16,21 @@ Tavily is available only as a bounded fallback tool: basic search, a maximum of
 three results, a short timeout, no retry, and domains limited to the selected
 payer's official sites plus `cms.gov`. Patient-case data is never included
 in a Tavily query.
+
+## Infusion-center calls
+
+Calls launched from the backend's confirmed facility-search flow are marked as
+an `infusion-center` recipient in the private, capability-protected call
+context. The worker then uses the Conduit care-sourcing opening: it discloses
+that it is an AI assistant, asks for scheduling or intake, and shares no
+patient details until the recipient confirms they are the appropriate contact.
+
+The provided Conduit prompt assumes live calendar, capacity, document-delivery,
+appointment, and CRM tools. Those integrations do not exist in this synthetic
+hackathon project, so the worker never claims an appointment, patient
+availability, authorization, referral, documentation delivery, or confirmation
+that is not supplied in context. It also continues to terminate on voicemail
+and IVR without leaving a message.
 
 ## Setup
 

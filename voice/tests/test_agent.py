@@ -360,6 +360,69 @@ async def test_completion_keeps_the_call_nonterminal_until_the_room_is_deleted()
 
 
 @pytest.mark.asyncio
+async def test_infusion_center_completion_tool_uses_neutral_intake_fields() -> None:
+    """Facility calls get a matching tool while retaining the callback schema."""
+
+    from livekit.agents.llm import ToolError
+
+    from agent import CoverageAgent
+
+    context = OutboundCallContext.from_payload(
+        {
+            "call_id": "call-facility-123",
+            "to_phone_number": "+12125550123",
+            "payer": "aetna",
+            "plan_type": "commercial",
+            "drug": "pembrolizumab",
+            "recipient": {
+                "kind": "infusion-center",
+                "name": "Chelsea Infusion Center",
+            },
+            "patient": {},
+            "criteria": [],
+        }
+    )
+
+    class FakeRuntime:
+        def __init__(self) -> None:
+            self.context = context
+            self.calls: list[dict[str, object]] = []
+
+        async def complete(self, tool_context: object, **kwargs: object) -> None:
+            self.calls.append({"tool_context": tool_context, **kwargs})
+
+    runtime = FakeRuntime()
+    agent = CoverageAgent(runtime)  # type: ignore[arg-type]
+    tool_context = object()
+
+    await agent.complete_infusion_center_call(
+        tool_context,  # type: ignore[arg-type]
+        outcome="partial",
+        intake_summary=["Scheduling could not complete intake during this call."],
+        follow_up_questions=["What is the referral intake route?"],
+    )
+
+    assert runtime.calls == [
+        {
+            "tool_context": tool_context,
+            "outcome": "partial",
+            "criteria_summary": [
+                "Scheduling could not complete intake during this call."
+            ],
+            "unresolved_questions": ["What is the referral intake route?"],
+        }
+    ]
+
+    with pytest.raises(ToolError, match="complete_infusion_center_call"):
+        await agent.complete_coverage_call(
+            tool_context,  # type: ignore[arg-type]
+            outcome="partial",
+            criteria_summary=["No coverage criteria were discussed."],
+            unresolved_questions=[],
+        )
+
+
+@pytest.mark.asyncio
 async def test_terminal_callback_follows_room_deletion_and_is_skipped_on_delete_error() -> (
     None
 ):
@@ -583,7 +646,10 @@ def test_coverage_specialist_instructions_require_disclosure_without_contact_dat
 ):
     from livekit.agents import llm
 
-    from agent import build_coverage_instructions, build_private_llm_context
+    from agent import (
+        build_coverage_instructions,
+        build_private_llm_context,
+    )
 
     context = OutboundCallContext.from_payload(
         {
@@ -616,6 +682,113 @@ def test_coverage_specialist_instructions_require_disclosure_without_contact_dat
     assert "synthetic" in private_text
     assert "patient@example.test" not in private_text
     assert "contact_data" not in private_text
+
+
+def test_infusion_center_call_context_uses_conduit_prompt_without_inventing_tools() -> (
+    None
+):
+    from livekit.agents import llm
+
+    from agent import (
+        build_coverage_instructions,
+        build_initial_reply_instruction,
+        build_private_llm_context,
+    )
+
+    context = OutboundCallContext.from_payload(
+        {
+            "call_id": "call-789",
+            "to_phone_number": "+12125550123",
+            "payer": "aetna",
+            "plan_type": "commercial",
+            "drug": "ustekinumab",
+            "recipient": {
+                "kind": "infusion-center",
+                "name": "Chelsea Infusion Center",
+            },
+            "patient": {
+                "quickview_data": {"synthetic": True},
+                "banner_data": {"coverage": "active"},
+            },
+            "criteria": [],
+        }
+    )
+
+    persisted_history = llm.ChatContext()
+    persisted_history.add_message(role="system", content=build_coverage_instructions())
+    private_context = build_private_llm_context(persisted_history, context)
+    instructions = build_coverage_instructions()
+    private_text = "\n".join(item.text_content for item in private_context.items)
+
+    assert "Conduit" in instructions
+    assert "infusion-center scheduling" in instructions
+    assert "complete_infusion_center_call" in instructions
+    assert "Do not leave voicemail" in instructions
+    assert "do not invent" in instructions.lower()
+    assert "staff member will follow up" not in instructions
+    assert "promise a staff follow-up" in instructions
+    assert "Chelsea Infusion Center" not in instructions
+    assert "Recipient type: infusion-center" in private_text
+    assert "Recipient name: Chelsea Infusion Center" in private_text
+    opening = build_initial_reply_instruction(context)
+    assert "Conduit" in opening
+    assert "scheduling or intake" in opening
+    assert "appointment" in opening
+
+    payer_opening = build_initial_reply_instruction(
+        OutboundCallContext.from_payload(
+            {
+                "call_id": "call-790",
+                "to_phone_number": "+12125550123",
+                "payer": "aetna",
+                "plan_type": "commercial",
+                "drug": "ustekinumab",
+                "patient": {},
+                "criteria": [],
+            }
+        )
+    )
+    assert "coverage criteria" in payer_opening
+    assert "Conduit" not in payer_opening
+
+
+@pytest.mark.asyncio
+async def test_infusion_center_call_does_not_prefetch_payer_policy_research() -> None:
+    from agent import CoverageCallRuntime
+
+    class FakeResearcher:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, str]] = []
+
+        async def search(self, **kwargs: str) -> list[PublicSource]:
+            self.calls.append(kwargs)
+            return []
+
+    context = OutboundCallContext.from_payload(
+        {
+            "call_id": "call-901",
+            "to_phone_number": "+12125550123",
+            "payer": "aetna",
+            "plan_type": "commercial",
+            "drug": "ustekinumab",
+            "recipient": {
+                "kind": "infusion-center",
+                "name": "Chelsea Infusion Center",
+            },
+            "patient": {},
+            "criteria": [],
+        }
+    )
+    researcher = FakeResearcher()
+    runtime = CoverageCallRuntime(
+        context=context,
+        callbacks=object(),  # type: ignore[arg-type]
+        job_context=object(),  # type: ignore[arg-type]
+        researcher=researcher,  # type: ignore[arg-type]
+    )
+
+    assert await runtime.ensure_public_fallback() == []
+    assert researcher.calls == []
 
 
 def test_pipeline_uses_the_configured_direct_provider_models(

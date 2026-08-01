@@ -37,7 +37,7 @@ Launch a synthetic demo call:
 curl --request POST http://127.0.0.1:8000/calls \
   --header 'content-type: application/json' \
   --data '{
-    "to_phone_number": "+12125550123",
+    "to_phone_number": "+13478868173",
     "patient_id": "case-002",
     "payer": "aetna",
     "plan_type": "commercial",
@@ -49,6 +49,67 @@ The API returns `202` immediately. Poll the supplied `status_url`. It returns a
 masked destination, lifecycle state, outcome, sanitized summary, unresolved
 questions, and public sources; it never returns the full synthetic-case payload or a
 transcript. Only one non-terminal call is allowed at a time.
+
+## Find an infusion center near ZIP 10001 and run the demo call
+
+Facility discovery is a separate, location-only flow. It sends Tavily a fixed
+ZIP `10001` query, returns at most three candidates with a normalized US phone
+number and source URL, and retains the selection in memory for ten minutes. It
+does not send any synthetic case, patient, provider, or caller data to Tavily.
+
+Add the same `TAVILY_API_KEY` used by the worker and your verified demo number
+to `be/.env.local`, then run the normal backend (not
+`scripts/demo_call.py serve`):
+
+```dotenv
+TAVILY_API_KEY=...
+DEMO_OUTBOUND_PHONE_NUMBER=+13478868173
+```
+
+```bash
+cd be
+uv sync
+uv run python -m docsearch.serve
+```
+
+In another terminal, inspect the candidates. This hackathon flow supports only
+ZIP `10001`:
+
+```bash
+cd be
+uv run python scripts/facility_call.py discover --zip 10001
+```
+
+`discover` prints an opaque `search_id` and a `candidate_id` for each exact
+candidate snapshot. Independently verify its phone number on an official or
+otherwise authoritative source, then select one of those IDs and explicitly
+acknowledge the demo call. The `case_id` derives the call's payer, plan, and
+drug from `fixtures/cases.json`; it is not included in the Tavily query.
+
+```bash
+cd be
+uv run python scripts/facility_call.py launch \
+  --search-id '<search_id printed by discover>' \
+  --candidate-id '<candidate_id printed by discover>' \
+  --case-id case-002 \
+  --confirm
+```
+
+The script uses the normal local backend's `POST /facility-searches`,
+`GET /facility-searches/{search_id}`, and
+`POST /facility-searches/{search_id}/demo-calls`. The second route shows the
+exact short-lived snapshot you selected; the third accepts only a candidate
+returned by it and requires `confirm_destination: true`. It never accepts a
+free-form phone number.
+
+The selected facility is **never dialed**. It is private context for the
+Conduit demo agent; every facility demo call is sent only to
+`DEMO_OUTBOUND_PHONE_NUMBER`. Discovery is restricted to ZIP `10001`. A
+candidate phone is deterministically extracted only when the Tavily result
+labels it as a phone/call number; it is not guessed or independently verified
+as a direct line. Tavily ranking is location-relevant search ranking, not a
+calculated geospatial distance, so treat candidates as display-only and verify
+them separately before any future real-world use.
 
 ## Synthetic cases
 
@@ -105,7 +166,8 @@ Do not run the regular backend on port 8000 at the same time.
 
 ## Environment
 
-See [`.env.example`](.env.example). Only LiveKit settings are needed for calls.
+See [`.env.example`](.env.example). LiveKit settings are needed for calls;
+`TAVILY_API_KEY` is additionally required for facility discovery.
 `PAYER_CRITERIA_DB_PATH` is optional until
 the teammate-owned schema is available. Do not create, migrate, copy, or infer
 tables for that database here. Once it arrives, implement its parameterized
