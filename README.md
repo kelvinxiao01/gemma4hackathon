@@ -1,90 +1,205 @@
-# Prior-Auth Copilot
+# Hackathon Outbound Coverage Voice Agent
 
-A prior authorization copilot that runs locally on the specialist's machine.
+This repository contains a local-demo voice agent that calls a US demo number,
+identifies itself as an AI assistant, and discusses published coverage criteria.
+The FastAPI service and LiveKit worker run locally; LiveKit Cloud provides rooms
+and SIP, and Cerebras, Deepgram, Cartesia, Tavily, and Tross are remote services.
 
-Built for Build with Gemma NYC: On-Device AI for Healthcare. Track 2, Agentic Care Copilots.
+The outbound path does **not** use Ollama, EmbeddingGemma, or the existing
+`be/docsearch` index. That retrieval experiment remains in the repository as a
+separate component.
 
-## The problem
+## What is included
 
-Prior authorization is manual administrative work. For a single oncology request, a specialist locates the payer's coverage policy, reads the criteria out of a long PDF, checks the patient's chart against each one, and drafts a justification letter. Much of this volume still moves by fax. CMS-0057-F tightens payer decision timeframes to 7 calendar days for standard requests and 72 hours for expedited ones starting January 2026, and requires FHIR prior-authorization APIs by January 2027.
+- `be/`: FastAPI API for launching and monitoring one active demo call.
+- `be/calling/`: isolated call coordination, Tross fetch, LiveKit dispatch, and
+  the read-only payer-criteria repository boundary.
+- `voice/`: outbound-only LiveKit worker using Cerebras `gemma-4-31b`, Deepgram
+  Nova-3, and Cartesia Sonic 3.5.
+- `fe/`: unrelated frontend starter; it is not part of the outbound demo path.
 
-The users are billing and prior-authorization specialists, not clinicians.
-
-## Why local inference
-
-A cloud version of this tool needs placeholder tokens, schema allowlists, and PHI screening on both directions of every request. Those layers exist because inference runs on a remote server.
-
-Gemma 4 runs on the specialist's machine instead, so patient context never leaves it and there is no PHI screening layer to build.
-
-## Gemma 4 in this project
-
-Every inference call goes to a Gemma-family model. No OpenAI, Anthropic, or other LLM client appears in the dependency tree.
-
-| Model | Role | Location |
-|---|---|---|
-| EmbeddingGemma (768-dim) | Embeds policy chunks at index time and queries at search time. | `be/docsearch/embed.py:36` is the only outbound inference call in `be/`. Model name at `:10`, task prefixes at `:15`, callers at `:56` and `:60`. |
-| Gemma 4 (`gemma4:e4b`) | Reasoning over retrieved policy text: criteria checking, structured output, letter drafting. | `voice/`. The retrieval layer in this README does not call it. |
-
-Both run through [Ollama](https://ollama.com). No API key is required; `GEMMA_PROVIDER=ollama` is the default.
-
-Retrieval is embedding-based rather than keyword matching. Policy documents are chunked within page boundaries and embedded using EmbeddingGemma's asymmetric task prefixes (`title: none | text: ...` for documents, `task: search result | query: ...` for queries). Ollama returns L2-normalised vectors, so cosine similarity reduces to a dot product over a small matrix. Search is exact and needs no vector database.
+The backend retains call state only in memory. It sends no full transcript or
+Tross payload through its public API. LiveKit Agent Observability is configured
+for transcripts only; audio, trace, and log uploads are disabled.
 
 ## Architecture
 
+```mermaid
+flowchart LR
+  C[Local curl client] -->|POST /calls| B[FastAPI on 127.0.0.1:8000]
+  B -->|synthetic patient only| T[Tross sandbox]
+  B -->|criteria when database is ready| DB[(Teammate-owned SQLite)]
+  B -->|opaque call ID + token| LK[LiveKit Cloud room/dispatch]
+  V[Local LiveKit worker] -->|token-protected context/callback| B
+  V -->|fallback policy sources only| TV[Tavily]
+  V -->|SIP outbound trunk| LK
+  LK --> TW[Twilio Elastic SIP]
+  TW --> D[Verified US demo number]
+  V --> DG[Deepgram Nova-3]
+  V --> CE[Cerebras Gemma 4 31B]
+  V --> CA[Cartesia Sonic 3.5]
 ```
-be/       Python. Policy corpus, indexing, retrieval, HTTP search API.
-fe/       Next.js. Specialist-facing UI.
-voice/    LiveKit voice agent. Calls the retrieval API over HTTP.
-```
 
-`be/` exposes one contract that the other components consume:
+The only LiveKit dispatch metadata is the call ID plus a random capability
+token. The worker retrieves the phone number, synthetic patient brief, and
+criteria from an internal backend endpoint after it starts.
 
-```
-GET /search?q=<query>&payer=<slug>&drug=<slug>&top_k=8
-```
+## Quick start
 
-Each hit carries the chunk text, similarity score, payer, drug, plan type, page number, and source URL, so any answer can cite where it came from. Page numbers apply to PDF sources. HTML policy bulletins have no pagination, so they cite the document URL instead.
+Prerequisites: Python/`uv`, Homebrew, a LiveKit Cloud project named
+`gemma4hackathon`, and a Twilio Trial account with a verified US demo
+destination. Do not use real patient data or unverified real-world destinations.
 
-## Design decisions
-
-- Answers cite their policy source. If a criterion is absent from the document, the response is "not found in policy" rather than an inference.
-- `plan_type` (commercial, Medicare, Medicaid) appears on every citation, because coverage criteria differ across them.
-- Confidence is explicit and carries a reason code.
-- A human makes every decision. Several states prohibit automated approval or denial of prior-authorization requests.
-
-## Data
-
-Public payer coverage policies only: published clinical policy bulletins and coverage criteria from Aetna, Anthem, Cigna, and UnitedHealthcare. No patient data is in this repository. Patient context used in demos is synthetic.
-
-`be/scripts/fetch_corpus.py` is the script that produced `be/corpus/`. It records each document's source URL and a SHA-256 of the fetched bytes, so any committed file can be checked against the live payer document.
-
-The policy text in `be/corpus/` is unmodified third-party material, reproduced here for research and reproducibility. Copyright remains with each payer (and, for CPT code references, the American Medical Association). It is not covered by this project's MIT license, which applies to the code.
-
-## Running it
-
-Requires [Ollama](https://ollama.com) and [uv](https://docs.astral.sh/uv/).
+First update the LiveKit CLI if needed. `lk docs` needs version 2.15 or newer.
 
 ```bash
-ollama pull embeddinggemma        # 622 MB, retrieval
-ollama pull gemma4:e4b            # 9.6 GB, reasoning
+brew update
+brew upgrade livekit-cli
+lk --version
+```
 
+The project is already linked. Reauthenticate only if needed:
+
+```bash
+lk cloud auth
+```
+
+Create local environment files, which are gitignored:
+
+```bash
+cd voice
+lk --project gemma4hackathon app env --write --destination .env.local .
+
+cd ../be
+lk --project gemma4hackathon app env --write --destination .env.local .
+```
+
+Merge the provider values from the existing `voice/.env` into
+`voice/.env.local`, then fill in the remaining variables described in
+[`voice/.env.example`](voice/.env.example) and
+[`be/.env.example`](be/.env.example). The Google credential is not used by this
+outbound worker.
+
+Install and start the two local processes in separate terminals:
+
+```bash
 cd be
 uv sync
-uv run python -m docsearch.index  # builds the index from the committed corpus, no network
-uv run python -m docsearch.serve  # http://127.0.0.1:8000
+uv run python -m docsearch.serve
 ```
-
-Query it directly:
 
 ```bash
-curl "http://127.0.0.1:8000/search?q=pembrolizumab+initial+approval+criteria&payer=aetna"
+cd voice
+uv sync
+uv run python src/agent.py dev
 ```
 
-The policy corpus is committed, so indexing needs no network access and reproduces on any machine.
+Launch one synthetic demo call after the backend and worker report ready:
 
-## Scope
+```bash
+curl --request POST http://127.0.0.1:8000/calls \
+  --header 'content-type: application/json' \
+  --data '{
+    "to_phone_number": "+12125550123",
+    "patient_id": "sandbox-patient-id",
+    "payer": "aetna",
+    "plan_type": "commercial",
+    "drug": "pembrolizumab"
+  }'
+```
 
-Decision-support software for administrative staff. It does not diagnose, recommend treatment, or make approval decisions. It locates the applicable policy language, shows where that language came from, and drafts text for a human to review.
+The response is `202` and includes a `call_id` and `status_url`. Poll the URL
+to follow the lifecycle. Only one call can be active at a time; a concurrent
+launch returns `409`.
+
+## Configuration
+
+The worker loads `voice/.env.local`; the backend loads `be/.env.local`.
+
+Voice requires:
+
+- `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`
+- `CEREBRAS_API_KEY`
+- `DEEPGRAM_API_KEY`
+- `CARTESIA_API_KEY`
+- `TAVILY_API_KEY`
+- `SIP_OUTBOUND_TRUNK_ID`
+- `CALL_BACKEND_URL=http://127.0.0.1:8000`
+
+Backend requires:
+
+- `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`
+- `TROSS_API_KEY`, `TROSS_ORG_ID`, `TROSS_AUTH_ID`
+- optionally `PAYER_CRITERIA_DB_PATH` when the teammate-owned SQLite database
+  and its schema are available.
+
+The database is intentionally not created or migrated by this project. Until an
+adapter is implemented against the teammate's real schema, an unavailable
+repository result makes the worker use restricted Tavily search instead.
+
+## Twilio + LiveKit setup
+
+The existing Twilio `gemma` trunk needs a termination domain and SIP digest
+credentials. In Twilio Console:
+
+1. Open **Elastic SIP Trunking → Trunks → gemma**.
+2. Assign a unique termination domain, for example
+   `gemma4hackathon.pstn.twilio.com`.
+3. Create a separate SIP digest Credential List and attach it to the trunk.
+   Do not use the Twilio Account SID/Auth Token as SIP credentials.
+4. Associate the existing Twilio voice number.
+5. Enable only United States Voice geographic permissions.
+6. While on a Trial account, verify each US demo destination in Twilio before
+   placing a call.
+
+Then create the reusable LiveKit outbound trunk. Substitute the SIP digest
+credentials and Twilio voice number; do not put them in source control.
+
+```bash
+lk --project gemma4hackathon sip outbound create \
+  --name gemma-twilio \
+  --address gemma4hackathon.pstn.twilio.com \
+  --numbers "$TWILIO_FROM_NUMBER" \
+  --auth-user "$SIP_AUTH_USERNAME" \
+  --auth-pass "$SIP_AUTH_PASSWORD" \
+  --destination-country US
+```
+
+Put the returned `ST_...` identifier in `voice/.env.local` as
+`SIP_OUTBOUND_TRUNK_ID`. No inbound trunk, origination URI, or inbound dispatch
+rule is needed.
+
+In LiveKit Cloud, enable Agent Observability under **Settings → Data and
+privacy**. Keep transcript upload enabled and disable audio, trace, and log
+uploads. LiveKit documents a 30-day observability retention period.
+
+## Safety and demo behavior
+
+- The API binds only to `127.0.0.1` and deliberately has no user authentication
+  for this hackathon demo.
+- The backend validates US E.164 destinations, but Twilio still enforces Trial
+  verification and carrier rules.
+- Tross data is sandbox/synthetic. The backend drops `contact_data`, applies
+  size limits, and fails before dialing if the Tross response is malformed.
+- The agent waits for answering-machine detection before it speaks. It proceeds
+  only for human or uncertain classifications; voicemail, unavailable mailboxes,
+  and IVRs end without a message.
+- Tavily queries contain payer, plan, drug, and policy terms only—not patient or
+  Tross context—and are limited to official payer domains plus `cms.gov`.
+- This is coverage-criteria research support, not a clinical recommendation or
+  automated prior-authorization decision.
+
+## Tests
+
+```bash
+cd be && uv run pytest
+cd voice && uv run pytest
+```
+
+The suites use fakes and do not require provider credentials. Before the demo,
+manually test human, voicemail, IVR, silence, and unavailable-mailbox AMD paths
+with verified demo numbers. Cerebras Gemma is not on LiveKit's evaluated AMD
+model list, so this manual check is required.
 
 ## License
 

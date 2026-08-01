@@ -15,7 +15,8 @@ ENV PYTHONUNBUFFERED=1
 # expense of a slightly longer build.
 ENV UV_COMPILE_BYTECODE=1
 
-# Ensure local models are downloaded to a shared directory accessible by all stages.
+# Cache LiveKit helper assets (turn detection and audio enhancement) in the
+# image. Cerebras, Deepgram, Cartesia, and Tavily remain remote APIs.
 ENV HF_HOME=/app/.cache/huggingface
 ENV TORCH_HOME=/app/.cache/torch
 
@@ -48,7 +49,8 @@ RUN mkdir -p src
 # Ensure your uv.lock file is checked in for consistency across environments
 RUN uv sync --locked
 
-# Pre-download any ML models or files the agent needs
+# Pre-download the small LiveKit helper assets the agent needs. This does not
+# download the inference model: Gemma runs through Cerebras at call time.
 # This runs before COPY . . so the download layer is cached across code-only changes.
 # The module-level command discovers installed livekit-plugins-* packages without
 # loading your agent code.
