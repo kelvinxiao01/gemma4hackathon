@@ -70,6 +70,12 @@ def score_criteria(criteria: list[dict]) -> tuple[int, str]:
         return score, "NEEDS_REVIEW"
     if any(_status(c) == "NOT_MET" for c in required):
         return score, "NOT_QUALIFIED"
+    # A record where no requirement could be determined either way is
+    # undocumented, not contradicted, so the score floor does not apply to it.
+    # Closing such a case on points alone would be an adverse determination
+    # reached without a human, which is what the Submit gate exists to prevent.
+    if not any(_status(c) in ("MET", "NOT_MET") for c in required):
+        return score, "NEEDS_REVIEW"
     if score < NOT_QUALIFIED_CEILING:
         return score, "NOT_QUALIFIED"
     if score >= QUALIFIES_FLOOR and all(
