@@ -1,0 +1,79 @@
+[
+  {
+    "case_id": "case-001",
+    "payer": "aetna",
+    "drug": "ustekinumab",
+    "plan_type": "commercial",
+    "patient": {
+      "age": 34,
+      "weight_kg": 82,
+      "height_cm": 175,
+      "diagnosis": "moderately to severely active Crohn's disease",
+      "treatment_history": ["azathioprine, 6 months, inadequate response"]
+    },
+    "screening": {},
+    "provider": {
+      "name": "Dr. Avery Testcase",
+      "npi": "1234567890",
+      "specialty": "gastroenterology"
+    },
+    "form": {
+      "absolute_dose_mg": null,
+      "bsa_m2": null,
+      "npi_verified": null
+    }
+  },
+  {
+    "case_id": "case-002",
+    "payer": "aetna",
+    "drug": "ustekinumab",
+    "plan_type": "commercial",
+    "patient": {
+      "age": 41,
+      "weight_kg": 68,
+      "height_cm": 163,
+      "diagnosis": "moderately to severely active Crohn's disease",
+      "treatment_history": [
+        "azathioprine, 8 months, inadequate response",
+        "prednisone, 12 weeks, dependent"
+      ]
+    },
+    "screening": {
+      "tb_test": "QuantiFERON-TB Gold, negative, 2026-05-12"
+    },
+    "provider": {
+      "name": "Dr. Robin Fixture",
+      "npi": "1234567890",
+      "specialty": "gastroenterology"
+    },
+    "form": {
+      "absolute_dose_mg": null,
+      "bsa_m2": null,
+      "npi_verified": null
+    }
+  },
+  {
+    "case_id": "case-003",
+    "payer": "uhc",
+    "drug": "pembrolizumab",
+    "plan_type": "commercial",
+    "patient": {
+      "age": 57,
+      "weight_kg": 79,
+      "height_cm": 171,
+      "diagnosis": "metastatic non-small cell lung cancer",
+      "treatment_history": ["carboplatin/pemetrexed, 4 cycles, progression"]
+    },
+    "screening": {},
+    "provider": {
+      "name": "Dr. Morgan Sample",
+      "npi": "1234567890",
+      "specialty": "medical oncology"
+    },
+    "form": {
+      "absolute_dose_mg": null,
+      "bsa_m2": null,
+      "npi_verified": null
+    }
+  }
+]

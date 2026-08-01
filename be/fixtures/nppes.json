@@ -1,0 +1,33 @@
+{
+  "_comment": "Synthetic provider records keyed by NPI. npi_lookup reads this file and never calls the network, so the demo path works with no internet. Every NPI here deliberately fails the CMS check digit (Luhn over '80840' + the 9-digit base), so none of them can ever be issued by CMS or resolve to a real practitioner. Verified: 1234567890 requires check digit 3 and carries 0.",
+  "1234567890": {
+    "found": true,
+    "npi": "1234567890",
+    "name": "Avery Testcase",
+    "credential": "MD",
+    "specialty": "Gastroenterology",
+    "taxonomy_code": "207RG0100X",
+    "address": {
+      "line": "100 Example Medical Plaza, Suite 4",
+      "city": "Springfield",
+      "state": "NY",
+      "postal_code": "10001"
+    },
+    "status": "synthetic fixture, not a real registry record"
+  },
+  "1111111111": {
+    "found": true,
+    "npi": "1111111111",
+    "name": "Robin Fixture",
+    "credential": "DO",
+    "specialty": "Gastroenterology",
+    "taxonomy_code": "207RG0100X",
+    "address": {
+      "line": "22 Sample Street",
+      "city": "Springfield",
+      "state": "NY",
+      "postal_code": "10002"
+    },
+    "status": "synthetic fixture, not a real registry record"
+  }
+}

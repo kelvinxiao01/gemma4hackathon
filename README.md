@@ -18,14 +18,14 @@ Gemma 4 runs on the specialist's machine instead, so patient context never leave
 
 ## Gemma 4 in this project
 
-Every inference call goes to a Gemma-family model. No OpenAI, Anthropic, or other LLM client appears in the dependency tree.
+Every inference call goes to a Gemma-family model: Gemma 4 for generation, EmbeddingGemma for embeddings. The backend dependency tree in `be/` contains no LLM client at all, only an HTTP call to a local Ollama server. The LiveKit voice stack in `voice/` pulls an `openai` package transitively through `livekit-agents`, and nothing in this repository calls it.
 
 | Model | Role | Location |
 |---|---|---|
 | EmbeddingGemma (768-dim) | Embeds policy chunks at index time and queries at search time. | `be/docsearch/embed.py:36` is the only outbound inference call in `be/`. Model name at `:10`, task prefixes at `:15`, callers at `:56` and `:60`. |
-| Gemma 4 (`gemma4:e4b`) | Reasoning over retrieved policy text: criteria checking, structured output, letter drafting. | `voice/`. The retrieval layer in this README does not call it. |
+| Gemma 4 (`gemma4:e4b`) | Reasoning over retrieved policy text: criteria checking, structured output, letter drafting. | Local Ollama at `localhost:11434`. The copilot layer that calls it is in active development. |
 
-Both run through [Ollama](https://ollama.com). No API key is required; `GEMMA_PROVIDER=ollama` is the default.
+Both run through [Ollama](https://ollama.com). No API key is required.
 
 Retrieval is embedding-based rather than keyword matching. Policy documents are chunked within page boundaries and embedded using EmbeddingGemma's asymmetric task prefixes (`title: none | text: ...` for documents, `task: search result | query: ...` for queries). Ollama returns L2-normalised vectors, so cosine similarity reduces to a dot product over a small matrix. Search is exact and needs no vector database.
 
@@ -34,7 +34,7 @@ Retrieval is embedding-based rather than keyword matching. Policy documents are 
 ```
 be/       Python. Policy corpus, indexing, retrieval, HTTP search API.
 fe/       Next.js. Specialist-facing UI.
-voice/    LiveKit voice agent. Calls the retrieval API over HTTP.
+voice/    LiveKit scaffold. Not yet wired to the retrieval API.
 ```
 
 `be/` exposes one contract that the other components consume:

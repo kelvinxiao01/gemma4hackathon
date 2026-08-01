@@ -1,5 +1,7 @@
 # Local folders
 .a
+.ai
+.ai/
 
 # Python
 __pycache__/
