@@ -8,10 +8,13 @@ from dataclasses import asdict
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
+from calling.router import calling_health, install_calling_router
+
 from .embed import embed_query
-from .store import _connect, search
+from .store import DB_PATH, _connect, search
 
 app = FastAPI(title="Prior-Auth Copilot policy search")
+install_calling_router(app)
 
 # The Next.js app calls this from the browser. Without these headers the browser
 # blocks the response read, and any POST carrying Content-Type: application/json
@@ -53,23 +56,40 @@ def search_endpoint(q: str, payer: str | None = None, drug: str | None = None,
 
 @app.get("/health")
 def health():
-    conn = _connect()
-    try:
-        chunks, payers = conn.execute(
-            "SELECT COUNT(*), COUNT(DISTINCT payer) FROM chunks").fetchone()
-    finally:
-        conn.close()
-    # Counting rows says nothing about whether a query can be served: with
-    # Ollama down this returned 200 while every /search returned 500, and
-    # consumers use this as their readiness probe. A warm probe is ~100 ms and
-    # doubles as a keep-alive ping.
-    try:
-        embed_query("ping")
-        ollama = "ok"
-    except Exception as exc:
-        print(f"[health error] ollama: {type(exc).__name__}: {exc}")
-        ollama = "unreachable"
-    return {"chunks": chunks, "payers": payers, "ollama": ollama}
+    # The outbound demo does not require the legacy docsearch index.  Avoid
+    # `_connect()` when it is absent because `_connect()` creates an empty
+    # database, which would make health look superficially ready and turn a
+    # simple local readiness probe into a filesystem mutation.
+    chunks, payers = 0, 0
+    docsearch = "unavailable"
+    ollama = "not_checked"
+    if DB_PATH.exists():
+        try:
+            conn = _connect()
+            try:
+                chunks, payers = conn.execute(
+                    "SELECT COUNT(*), COUNT(DISTINCT payer) FROM chunks").fetchone()
+            finally:
+                conn.close()
+            docsearch = "available"
+            # Counting rows says nothing about whether a query can be served:
+            # retain the warm probe for callers still using /search.
+            try:
+                embed_query("ping")
+                ollama = "ok"
+            except Exception as exc:
+                print(f"[health error] ollama: {type(exc).__name__}: {exc}")
+                ollama = "unreachable"
+        except Exception as exc:
+            print(f"[health error] docsearch: {type(exc).__name__}: {exc}")
+            docsearch = "unavailable"
+    return {
+        "chunks": chunks,
+        "payers": payers,
+        "ollama": ollama,
+        "docsearch": docsearch,
+        "calling": calling_health(app),
+    }
 
 
 if __name__ == "__main__":
