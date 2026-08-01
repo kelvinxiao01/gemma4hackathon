@@ -1,0 +1,19 @@
+# Local folders
+.a
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Data
+be/data/
+
+# OS
+.DS_Store
