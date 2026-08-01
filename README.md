@@ -1,29 +1,191 @@
-# Hackathon Outbound Coverage Voice Agent
+# Conduit
 
-This repository contains a local-demo voice agent that calls a US demo number,
-identifies itself as an AI assistant, and discusses published coverage criteria.
-The FastAPI service and LiveKit worker run locally; LiveKit Cloud provides rooms
-and SIP, while Cerebras, Deepgram, Cartesia, and Tavily are remote services.
-Patient context comes only from committed synthetic case fixtures.
+A prior-authorization copilot for billing specialists. It reads the payer's own
+published coverage policy, checks a patient record against it before anything is
+submitted, and hands the specialist a citation-backed receipt for the result.
 
-The outbound path does **not** use Ollama, EmbeddingGemma, or the existing
-`be/docsearch` index. That retrieval experiment remains in the repository as a
-separate component.
+Gemma does the reading. EmbeddingGemma indexes the policy corpus and Gemma 4
+runs the qualification, both on the specialist's own machine through Ollama,
+with no API key and no network call. When a payer approves, a voice agent phones
+the infusion center and books the appointment.
 
-## What is included
+The pitch in one line: the payer's own policy, checked before the payer sees the
+request, with the receipt to prove it.
 
-- `be/`: FastAPI API for launching and monitoring one active demo call.
-- `be/calling/`: isolated call coordination, fixture-case lookup, LiveKit dispatch, and
-  the read-only payer-criteria repository boundary.
-- `voice/`: outbound-only LiveKit worker using Cerebras `gemma-4-31b`, Deepgram
-  Nova-3, and Cartesia Sonic 3.5.
-- `fe/`: unrelated frontend starter; it is not part of the outbound demo path.
+## Why this exists
 
-The backend retains call state only in memory. It sends no full transcript or
-synthetic case payload through its public API. LiveKit Agent Observability is configured
-for transcripts only; audio, trace, and log uploads are disabled.
+A prior-authorization denial is usually not a clinical disagreement. It is a
+missing sentence. The policy asked for a 14 week trial of a preferred
+biosimilar, the record documents 9 weeks, and nobody catches it until the payer
+does, three weeks later. Conduit catches it in about twenty seconds and cites
+the page it came from.
 
-## Architecture
+The product turns on the difference between two ways a criterion can fail:
+
+- `NOT_MET` means the record contradicts the requirement. A 9 week course
+  against a 14 week floor. The case stops before submission.
+- `UNKNOWN` means the requirement is undocumented. The case goes to a human.
+
+Conflating those is what makes automated prior-auth tools untrustworthy. A
+contradiction is a fact about the record. An omission is a question for a
+person.
+
+## What actually runs
+
+Being specific, because some of this is live and some is not.
+
+| Component | Status |
+|---|---|
+| Policy retrieval over the corpus | Live. EmbeddingGemma, on device, keyless. |
+| Qualification against policy text | Live Gemma 4 available, deterministic path by default. See below. |
+| Scoring and banding | Always computed in code, never by a model. |
+| Evidence receipts | Live, hashed against the source document. |
+| Payer decision after submit | Simulated on a timer. |
+| Infusion center search and slot hold | Live against the committed fixtures. |
+| The booking phone call | Simulated in the copilot flow. The subsystem under it is real. |
+
+`be/copilot/qualify.py` carries both qualification paths. The live one retrieves
+policy excerpts, streams Gemma 4's reasoning as it arrives, and resolves the
+excerpt numbers the model cites into real page references. It works and the
+citations are correct. It is off by default (`qualify.LIVE = False`) because the
+model does not reliably surface the step-therapy criterion the first demo case
+depends on, and a determination that quietly drops the criterion it was built to
+catch is worse than one that is reproducible. Set `LIVE = True` to qualify
+against the model. Everything downstream is identical either way.
+
+## Quick start
+
+Python 3.12 and [uv](https://docs.astral.sh/uv/). The copilot needs no API keys.
+
+```bash
+cd be
+uv sync
+uv run python -m docsearch.index      # build the policy index, about 16s, offline
+uv run python -m docsearch.serve      # 127.0.0.1:8000
+```
+
+`serve.py` imports `calling.router` absolutely, so run everything from `be/`.
+
+```bash
+curl -s localhost:8000/copilot/patients | python3 -m json.tool | head
+curl -N -X POST localhost:8000/copilot/patients/pt-dana/qualify
+curl -s localhost:8000/copilot/health
+```
+
+Live qualification needs Ollama holding `gemma4:e4b` and `embeddinggemma`. Tests
+run in any checkout with no Ollama and no network:
+
+```bash
+cd be && uv run pytest -q
+```
+
+## The copilot API
+
+Everything the dashboard needs sits under `/copilot`, on the same FastAPI app
+that serves `/search`.
+
+```
+GET  /copilot/patients                -> { active: Card[], completed: Card[] }
+GET  /copilot/patients/{id}           -> Card & { record, result, call, events }
+POST /copilot/patients/{id}/qualify   -> text/plain stream of the reasoning
+POST /copilot/patients/{id}/submit    -> {action: "submit" | "do_not_submit"}
+POST /copilot/patients/{id}/schedule  -> books an appointment by agent call
+POST /copilot/patients/{id}/events    -> append to the timeline
+GET  /copilot/evidence/{id}           -> the determination receipt
+GET  /copilot/health                  -> {gemma, search}
+POST /copilot/reset                   -> wipe and reseed
+```
+
+A patient moves through a tracked pipeline: `intake`, `policy_matched`,
+`qualifying`, `review`, `submitted`, `payer_decision`, `scheduling`, `calling`,
+`booked`, with `not_qualified` and `payer_denied` as the other two endings.
+Every stage change appends an event, so the case reads like a delivery tracker
+rather than a form.
+
+Two steps are always human: submitting to the payer, and booking the
+appointment. Several states prohibit automated prior-authorization
+determinations, so those gates are the compliance posture and nothing bypasses
+them.
+
+## Scoring
+
+Four required criteria at 20 points, four supporting at 5, to 100. Other counts
+normalize, with the required pool at 80 split evenly and supporting at 20.
+
+- `QUALIFIES` is 85 or above with every required criterion met.
+- `NOT_QUALIFIED` is any required criterion contradicted, or a score under 60.
+- `NEEDS_REVIEW` is everything else, including any required criterion left
+  undocumented.
+
+The model reports one status per criterion and nothing else. The arithmetic runs
+in `be/copilot/score.py`, so the same record always produces the same result and
+no coverage judgement is carried by generated text.
+
+A record where nothing could be determined either way routes to review whatever
+the score. Closing a case on points alone, when the only reason the points are
+low is that the chart is thin, would be an adverse determination no human saw.
+
+## Evidence receipts
+
+Every determination gets a permalink. The receipt carries the band, the score,
+the rule that produced it, each criterion with its record evidence and the
+policy quote behind it, the SHA-256 of the source document, and the line
+`Decision support for human review. Not a coverage determination.`
+
+The hash is read from the corpus when the case is seeded rather than copied into
+a fixture. A hand-copied hash can drift from the document it claims to quote. A
+read one cannot.
+
+## Data and safety
+
+Every patient, provider, and infusion center here is invented. The NPIs are
+deliberately invalid: each fails the CMS check digit, so none can collide with a
+real provider. Display phone numbers use the reserved 555-01xx range. The only
+number the voice agent can dial is one we own, enforced by a destination lock in
+the calling harness.
+
+The policy documents are real and public. The quotes on a receipt come from
+those documents, and the hash on the receipt identifies the file they were read
+from.
+
+Conduit does not diagnose, recommend treatment, or issue coverage
+determinations. The pre-submission negative outcome reads "Not submitted -
+criteria not met". The word "denied" appears only against an actual payer
+decision.
+
+## The calling subsystem
+
+`be/calling/` and `voice/` coordinate a real outbound call. The FastAPI service
+and LiveKit worker run locally. LiveKit Cloud provides rooms and SIP, and
+Cerebras, Deepgram, and Cartesia are remote services. The voice model is
+Cerebras-hosted `gemma-4-31b`, the same family as the on-device work. Patient
+context comes only from committed synthetic case fixtures.
+
+The backend keeps call state in memory only. It sends no transcript and no
+synthetic case payload through its public API. LiveKit Agent Observability is
+configured for transcripts alone, with audio, trace, and log upload disabled.
+
+Placing a real call needs `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and
+`LIVEKIT_API_SECRET` in `be/.env.local`, the worker running, and a verified
+destination. Without them the copilot's scheduling flow emits the same event
+sequence from timers, labeled as simulated, and the tracker behaves identically.
+
+## Repository layout
+
+```
+be/copilot/     tracker, scoring, qualification, scheduling
+be/docsearch/   policy corpus indexing and search over EmbeddingGemma
+be/calling/     call coordination, LiveKit dispatch, synthetic case lookup
+be/corpus/      15 payer policy documents across 4 payers, with source hashes
+be/fixtures/    synthetic patients, infusion centers, appointment slots
+voice/          the outbound LiveKit worker
+fe/             the specialist-facing dashboard
+```
+
+The policy index holds 528 chunks from 15 documents across UnitedHealthcare,
+Anthem, Cigna, and Aetna. It rebuilds offline in about 16 seconds.
+
+## Call architecture
 
 ```mermaid
 flowchart LR
@@ -45,7 +207,7 @@ The only LiveKit dispatch metadata is the call ID plus a random capability
 token. The worker retrieves the phone number, synthetic patient brief, and
 criteria from an internal backend endpoint after it starts.
 
-## Quick start
+## Voice agent and real call setup
 
 Prerequisites: Python/`uv`, Homebrew, a LiveKit Cloud project named
 `gemma4hackathon`, and a Twilio Trial account with a verified US demo
@@ -174,7 +336,7 @@ for the `discover` and `launch --confirm` commands.
 The existing Twilio `gemma` trunk needs a termination domain and SIP digest
 credentials. In Twilio Console:
 
-1. Open **Elastic SIP Trunking → Trunks → gemma**.
+1. Open **Elastic SIP Trunking -> Trunks -> gemma**.
 2. Assign a unique termination domain, for example
    `gemma4hackathon.pstn.twilio.com`.
 3. Create a separate SIP digest Credential List and attach it to the trunk.
@@ -201,7 +363,7 @@ Put the returned `ST_...` identifier in `voice/.env.local` as
 `SIP_OUTBOUND_TRUNK_ID`. No inbound trunk, origination URI, or inbound dispatch
 rule is needed.
 
-In LiveKit Cloud, enable Agent Observability under **Settings → Data and
+In LiveKit Cloud, enable Agent Observability under **Settings -> Data and
 privacy**. Keep transcript upload enabled and disable audio, trace, and log
 uploads. LiveKit documents a 30-day observability retention period.
 
@@ -218,7 +380,7 @@ uploads. LiveKit documents a 30-day observability retention period.
   only for human or uncertain classifications; voicemail, unavailable mailboxes,
   and IVRs end without a message.
 - Voice-policy Tavily queries contain payer, plan, drug, and policy terms
-  only—not synthetic case context—and are limited to official payer domains
+  only not synthetic case context and are limited to official payer domains
   plus `cms.gov`. Backend facility-discovery Tavily queries contain only the
   requested ZIP code.
 - This is coverage-criteria research support, not a clinical recommendation or
