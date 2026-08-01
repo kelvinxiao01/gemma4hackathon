@@ -11,6 +11,10 @@ class DispatchError(RuntimeError):
     pass
 
 
+class IndeterminateDispatchError(DispatchError):
+    """LiveKit may have accepted a dispatch before the client lost its reply."""
+
+
 @dataclass(frozen=True, slots=True)
 class DispatchRequest:
     call_id: str
@@ -68,7 +72,12 @@ class LiveKitDispatcher:
                 )
             )
         except Exception as exc:
-            raise DispatchError("LiveKit agent dispatch failed") from exc
+            # A transport/API error can arrive after LiveKit accepted the
+            # request. The coordinator must delete the known room before it
+            # permits another outbound call.
+            raise IndeterminateDispatchError(
+                "LiveKit agent dispatch outcome is indeterminate"
+            ) from exc
         finally:
             await client.aclose()
 
@@ -87,6 +96,12 @@ class LiveKitDispatcher:
         )
         try:
             await client.room.delete_room(api.DeleteRoomRequest(room=room_name))
+        except api.ServerError as exc:
+            # Cleanup is idempotent: a room absent from LiveKit already has
+            # the desired effect, so let the coordinator release its gate.
+            if exc.code == api.ServerErrorCode.NOT_FOUND:
+                return
+            raise DispatchError("LiveKit room cleanup failed") from exc
         except Exception as exc:
             raise DispatchError("LiveKit room cleanup failed") from exc
         finally:
@@ -94,14 +109,20 @@ class LiveKitDispatcher:
 
     @staticmethod
     def _validate_metadata(metadata: str) -> None:
-        """Protect against future call-context fields leaking into metadata."""
+        validate_dispatch_metadata(metadata)
 
-        try:
-            payload = json.loads(metadata)
-        except (TypeError, ValueError) as exc:
-            raise DispatchError("LiveKit dispatch metadata is invalid") from exc
-        if not isinstance(payload, dict) or set(payload) != {"call_id", "token"}:
-            raise DispatchError("LiveKit dispatch metadata is invalid")
-        if not all(isinstance(payload[key], str) and payload[key]
-                   for key in ("call_id", "token")):
-            raise DispatchError("LiveKit dispatch metadata is invalid")
+
+def validate_dispatch_metadata(metadata: str) -> None:
+    """Protect against future call-context fields leaking into metadata."""
+
+    try:
+        payload = json.loads(metadata)
+    except (TypeError, ValueError) as exc:
+        raise DispatchError("LiveKit dispatch metadata is invalid") from exc
+    if not isinstance(payload, dict) or set(payload) != {"call_id", "token"}:
+        raise DispatchError("LiveKit dispatch metadata is invalid")
+    if not all(
+        isinstance(payload[key], str) and payload[key]
+        for key in ("call_id", "token")
+    ):
+        raise DispatchError("LiveKit dispatch metadata is invalid")

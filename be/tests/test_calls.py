@@ -17,6 +17,7 @@ from calling.coordinator import (
     InvalidStateTransitionError,
 )
 from calling.criteria import UnavailableCriteriaRepository
+from calling.livekit import IndeterminateDispatchError
 from calling.models import (
     AgentEvent,
     CallOutcome,
@@ -263,6 +264,75 @@ def test_timeout_marks_an_active_call_with_a_precise_terminal_outcome() -> None:
     assert status.status == CallStatus.FAILED
     assert status.outcome == "timeout"
     assert dispatcher.deleted_rooms == [record.room_name]
+
+
+def test_timeout_keeps_the_one_call_gate_closed_when_room_cleanup_fails() -> None:
+    class FailingCleanupDispatcher:
+        async def dispatch(self, _: object) -> None:
+            return None
+
+        async def delete_room(self, _: str) -> None:
+            raise RuntimeError("cleanup transport is unavailable")
+
+    async def scenario() -> None:
+        deferred = DeferredSpawner()
+        coordinator = CallCoordinator(
+            patient_source=FakePatientSource(),
+            criteria_repository=UnavailableCriteriaRepository(),
+            dispatcher=FailingCleanupDispatcher(),
+            task_spawner=deferred,
+        )
+        try:
+            record = await coordinator.create_call(CallRequest(**_request_body()))
+            await coordinator.prepare_call(record.call_id)
+            await coordinator.expire_call(record.call_id)
+
+            with pytest.raises(ActiveCallError):
+                await coordinator.create_call(CallRequest(**_request_body()))
+        finally:
+            deferred.close()
+
+    asyncio.run(scenario())
+
+
+def test_indeterminate_dispatch_deletes_the_possible_room_before_reopening_gate() -> None:
+    class AmbiguousDispatcher:
+        def __init__(self) -> None:
+            self.deleted_rooms: list[str] = []
+
+        async def dispatch(self, _: object) -> None:
+            # Model a network failure after LiveKit could already have accepted
+            # the dispatch, so the coordinator must not treat it as a clean
+            # no-op.
+            raise IndeterminateDispatchError("LiveKit response was interrupted")
+
+        async def delete_room(self, room_name: str) -> None:
+            self.deleted_rooms.append(room_name)
+
+    async def scenario() -> None:
+        dispatcher = AmbiguousDispatcher()
+        deferred = DeferredSpawner()
+        coordinator = CallCoordinator(
+            patient_source=FakePatientSource(),
+            criteria_repository=UnavailableCriteriaRepository(),
+            dispatcher=dispatcher,
+            task_spawner=deferred,
+        )
+        try:
+            record = await coordinator.create_call(CallRequest(**_request_body()))
+            await coordinator.prepare_call(record.call_id)
+
+            status = await coordinator.public_status(record.call_id)
+            assert status.status == CallStatus.FAILED
+            assert status.outcome == CallOutcome.AGENT_ERROR
+            assert dispatcher.deleted_rooms == [record.room_name]
+
+            next_record = await coordinator.create_call(CallRequest(**_request_body()))
+            assert next_record.call_id != record.call_id
+        finally:
+            deferred.close()
+
+    asyncio.run(scenario())
 
 
 def test_invalid_agent_state_transition_is_rejected() -> None:
@@ -517,7 +587,9 @@ def test_timeout_holds_the_one_call_gate_until_inflight_dispatch_is_cleaned() ->
 
             dispatcher.release.set()
             await preparing
-            assert dispatcher.deleted_rooms == [record.room_name]
+            # The first delete is speculative while dispatch is unresolved;
+            # the second closes a room that appeared after that attempt.
+            assert dispatcher.deleted_rooms == [record.room_name, record.room_name]
 
             next_record = await coordinator.create_call(CallRequest(**_request_body()))
             assert next_record.call_id != record.call_id

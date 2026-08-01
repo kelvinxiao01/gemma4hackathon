@@ -260,6 +260,13 @@ class AgentEvent(BaseModel):
     error: str | None = Field(default=None, max_length=500)
 
 
+class RelayOperationResult(BaseModel):
+    """A local relay's definitive result for one leased operation."""
+
+    lease_token: str = Field(min_length=1, max_length=200)
+    succeeded: bool
+
+
 def validate_us_e164(value: str, *, field_name: str) -> str:
     """Accept a canonical US/NANP phone number and nothing else."""
 

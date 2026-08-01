@@ -14,7 +14,12 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .criteria import CriteriaRepository
-from .livekit import AgentDispatcher, DispatchRequest, RoomCleaner
+from .livekit import (
+    AgentDispatcher,
+    DispatchRequest,
+    IndeterminateDispatchError,
+    RoomCleaner,
+)
 from .models import (
     TERMINAL_STATUSES,
     AgentEvent,
@@ -217,6 +222,12 @@ class CallCoordinator:
         )
         try:
             await self._dispatcher.dispatch(request)
+        except IndeterminateDispatchError:
+            logger.warning("outbound_call_dispatch_indeterminate call_id=%s", call_id)
+            room_to_cleanup = await self._mark_dispatch_indeterminate(call_id)
+            if room_to_cleanup is not None:
+                await self._cleanup_possible_room(call_id, room_to_cleanup)
+            return
         except Exception:
             # Keep call logs identifier-only; a provider exception could carry
             # request metadata or other sensitive transport details.
@@ -233,7 +244,7 @@ class CallCoordinator:
         if room_to_cleanup is not None:
             # Timeout can occur while the cloud dispatch request is in flight.
             # Clean up here rather than leave a just-created room/SIP leg alive.
-            await self._cleanup_timed_out_room(call_id, room_to_cleanup)
+            await self._cleanup_possible_room(call_id, room_to_cleanup)
             return
         logger.info("outbound_call_dispatched call_id=%s", call_id)
 
@@ -322,13 +333,22 @@ class CallCoordinator:
             record.updated_at = now
             record.completed_at = now
             if record.room_dispatched or record.dispatch_in_progress:
-                if record.room_dispatched:
-                    room_to_cleanup = record.room_name
                 record.room_cleanup_pending = True
+                # A dispatch may have reached LiveKit just before its relay
+                # acknowledgement was interrupted. Deleting this deterministic
+                # room name is safe whether the room exists yet or not.
+                room_to_cleanup = record.room_name
+                cleanup_is_final = not record.dispatch_in_progress
+            else:
+                cleanup_is_final = True
             self._clear_private_context_locked(record)
         logger.warning("outbound_call_timed_out call_id=%s", call_id)
         if room_to_cleanup is not None:
-            await self._cleanup_timed_out_room(call_id, room_to_cleanup)
+            await self._cleanup_possible_room(
+                call_id,
+                room_to_cleanup,
+                final=cleanup_is_final,
+            )
 
     async def _watch_timeout(self, call_id: str) -> None:
         try:
@@ -389,6 +409,9 @@ class CallCoordinator:
                 record.status in TERMINAL_STATUSES
                 and record.outcome == CallOutcome.TIMEOUT
             ):
+                # A speculative delete may have run while dispatch was still
+                # unknown. Run one final delete after a confirmed dispatch so
+                # it cannot create a room after that speculative attempt.
                 record.room_cleanup_pending = True
                 return record.room_name
             return None
@@ -401,8 +424,35 @@ class CallCoordinator:
             if record is None:
                 return
             record.dispatch_in_progress = False
-            if not record.room_dispatched:
+            if (
+                not record.room_dispatched
+                and record.status in TERMINAL_STATUSES
+                and record.outcome == CallOutcome.TIMEOUT
+            ):
+                # The relay definitively reported no dispatch, so an earlier
+                # speculative timeout cleanup cannot have missed a room.
                 record.room_cleanup_pending = False
+
+    async def _mark_dispatch_indeterminate(self, call_id: str) -> str | None:
+        """Fail safely and return the deterministic room that must be deleted."""
+
+        async with self._lock:
+            record = self._records.get(call_id)
+            if record is None:
+                return None
+            record.dispatch_in_progress = False
+            # Treat this as a possibly-created room. This keeps the active-call
+            # gate closed until LiveKit confirms deletion (or NotFound).
+            record.room_dispatched = True
+            record.room_cleanup_pending = True
+            if record.status not in TERMINAL_STATUSES:
+                now = _utcnow()
+                record.status = CallStatus.FAILED
+                record.outcome = CallOutcome.AGENT_ERROR
+                record.updated_at = now
+                record.completed_at = now
+                self._clear_private_context_locked(record)
+            return record.room_name
 
     async def _fail(
         self,
@@ -424,9 +474,16 @@ class CallCoordinator:
             record.completed_at = now
             self._clear_private_context_locked(record)
 
-    async def _cleanup_timed_out_room(self, call_id: str, room_name: str) -> None:
+    async def _cleanup_possible_room(
+        self,
+        call_id: str,
+        room_name: str,
+        *,
+        final: bool = True,
+    ) -> None:
         """Delete a room after timeout without exposing transport identifiers."""
 
+        cleanup_confirmed = False
         try:
             if not isinstance(self._dispatcher, RoomCleaner):
                 logger.warning(
@@ -435,13 +492,19 @@ class CallCoordinator:
                 return
             try:
                 await self._dispatcher.delete_room(room_name)
+                cleanup_confirmed = True
             except Exception:
                 # A cleanup failure never changes the authoritative timeout
                 # state. Avoid provider exception text/tracebacks because they
                 # can contain request metadata.
                 logger.warning("outbound_call_room_cleanup_failed call_id=%s", call_id)
         finally:
-            await self._finish_room_cleanup(call_id, room_name)
+            # A speculative deletion during an in-flight dispatch is not proof
+            # that a room will not appear later. Likewise, a failed cleanup
+            # must keep the one-call gate closed rather than risk a second SIP
+            # leg while the first may still exist.
+            if cleanup_confirmed and final:
+                await self._finish_room_cleanup(call_id, room_name)
 
     async def _finish_room_cleanup(self, call_id: str, room_name: str) -> None:
         async with self._lock:

@@ -1,6 +1,6 @@
 # Backend
 
-`docsearch.serve` now hosts two independent local APIs:
+`docsearch.serve` now hosts two independent APIs:
 
 - the original policy-document search experiment at `GET /search`; and
 - the outbound demo-call API at `POST /calls` and `GET /calls/{call_id}`.
@@ -21,7 +21,37 @@ uv run python -m docsearch.serve
 It binds to `127.0.0.1:8000` by default. The API is intentionally unauthenticated
 for the local hackathon demo, so do not expose that bind address to a network.
 
-Check readiness:
+## Run this backend in Daytona
+
+For the current Daytona sandbox, run this FastAPI service there but keep the
+LiveKit worker and the new relay on the Mac. The sandbox's TLS connection to
+LiveKit Cloud resets, so the relay polls Daytona for minimal dispatch work,
+executes LiveKit locally, and proxies only the worker's two capability-protected
+callback routes over HTTPS.
+
+Follow the complete three-process runbook in the
+[root README](../README.md#run-the-backend-on-daytona). In short:
+
+```bash
+# Daytona sandbox: set CALL_DISPATCH_MODE=daytona-relay, CALL_RELAY_SECRET,
+# and CALL_LAUNCH_SECRET
+uv run uvicorn docsearch.serve:app --host 0.0.0.0 --port 8000 \
+  --proxy-headers --forwarded-allow-ips='*'
+
+# Mac: after exporting DAYTONA_BACKEND_URL from `daytona preview-url ...`
+uv run python scripts/daytona_relay.py
+```
+
+Set the Mac worker's `CALL_BACKEND_URL=http://127.0.0.1:8010`. The relay binds
+only to that loopback address, so it is not publicly reachable. The signed
+Daytona Preview URL, `CALL_RELAY_SECRET`, and `CALL_LAUNCH_SECRET` are all
+sensitive while valid. The Daytona mode requires
+`Authorization: Bearer $CALL_LAUNCH_SECRET` for call-creation routes.
+
+The remaining commands in this section are for the original local backend at
+`127.0.0.1:8000`; use the root Daytona runbook for hosted calls.
+
+For the local-backend mode, check readiness:
 
 ```bash
 curl http://127.0.0.1:8000/health
