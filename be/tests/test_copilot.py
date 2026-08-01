@@ -512,8 +512,10 @@ def test_a_reply_with_no_json_after_the_sentinel_does_not_persist(
 
 def test_scheduling_books_the_nearest_center_that_offers_the_drug(
         client, monkeypatch):
-    # Run the call steps inline instead of on timers, so the assertions do not
-    # race a thread pool.
+    # Run every deferred step inline instead of on timers, so the assertions do
+    # not race a thread pool, and take the simulated path so the test never
+    # reaches the calling subsystem.
+    monkeypatch.setattr(orchestrate, "SIMULATE", True)
     monkeypatch.setattr(orchestrate, "_later",
                         lambda delay, fn, *args: fn(*args))
     assert client.post(
@@ -533,6 +535,130 @@ def test_scheduling_books_the_nearest_center_that_offers_the_drug(
     search = next(e for e in ravi["events"] if e["kind"] == "center_search")
     offered = [c for c in search["payload"]["centers"] if c["offers_drug"]]
     assert len(offered) == 2 and len(search["payload"]["centers"]) == 3
+
+
+class _FakeCalling:
+    """Stands in for the calling subsystem's HTTP surface.
+
+    Walks a call from dialing to completed so the bridge can be exercised
+    without Tavily, LiveKit, or a phone.
+    """
+
+    def __init__(self, statuses):
+        self.statuses = list(statuses)
+        self.posted = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def post(self, url, json=None):
+        self.posted.append((url, json))
+        if url == "/facility-searches":
+            return _FakeResponse(200, {
+                "search_id": "fs-1", "zip_code": "10001",
+                "candidates": [{"candidate_id": "c-1",
+                                "name": "Chelsea Infusion Associates",
+                                "phone_e164": "+12125550143",
+                                "source_url": "https://example.org/chelsea"}]})
+        return _FakeResponse(202, {"call_id": "call-1", "status": "preparing"})
+
+    def get(self, url):
+        status = self.statuses.pop(0) if self.statuses else "completed"
+        body = {"call_id": "call-1", "status": status, "outcome": None,
+                "summary": None}
+        if status == "completed":
+            body["outcome"] = "completed"
+            body["summary"] = {"criteria_summary": ["Slot confirmed."],
+                               "unresolved_questions": [],
+                               "public_sources": []}
+        return _FakeResponse(200, body)
+
+
+class _FakeResponse:
+    def __init__(self, status_code, payload):
+        self.status_code = status_code
+        self._payload = payload
+        self.text = ""
+
+    @property
+    def is_success(self):
+        return self.status_code < 400
+
+    def json(self):
+        return self._payload
+
+
+def test_scheduling_uses_the_real_discovery_and_call_when_available(
+        client, monkeypatch):
+    """The live path books from a discovered center, not the fixtures."""
+    fake = _FakeCalling(["dialing", "active", "completed"])
+    monkeypatch.setattr(orchestrate, "SIMULATE", False)
+    monkeypatch.setattr(orchestrate, "POLL_SECONDS", 0)
+    monkeypatch.setattr(orchestrate, "_later",
+                        lambda delay, fn, *args: fn(*args))
+    monkeypatch.setattr(orchestrate.httpx, "Client",
+                        lambda **kwargs: fake)
+
+    assert client.post(
+        "/copilot/patients/pt-ravi/schedule").status_code == 200
+
+    ravi = client.get("/copilot/patients/pt-ravi").json()
+    assert ravi["stage"] == "booked"
+    assert ravi["appointment"]["center_name"] == "Chelsea Infusion Associates"
+    assert ravi["call"]["call_id"] == "call-1"
+
+    # The call is placed against the discovered candidate, and the destination
+    # is the subsystem's configured number rather than anything we send.
+    search_url, body = fake.posted[1]
+    assert search_url == "/facility-searches/fs-1/demo-calls"
+    assert body["candidate_id"] == "c-1"
+    assert body["confirm_destination"] is True
+    assert "to_phone_number" not in body
+
+    kinds = [e["kind"] for e in ravi["events"]]
+    for expected in ("center_search", "slot_identified", "call_created",
+                     "call_dialing", "call_active", "call_completed",
+                     "booked"):
+        assert expected in kinds
+    assert not any("[simulated]" in e["message"] for e in ravi["events"])
+
+
+def test_a_failed_call_re_arms_scheduling(client, monkeypatch):
+    """A call that does not connect leaves the case ready to try again."""
+    fake = _FakeCalling(["dialing", "failed"])
+    monkeypatch.setattr(orchestrate, "SIMULATE", False)
+    monkeypatch.setattr(orchestrate, "POLL_SECONDS", 0)
+    monkeypatch.setattr(orchestrate, "_later",
+                        lambda delay, fn, *args: fn(*args))
+    monkeypatch.setattr(orchestrate.httpx, "Client", lambda **kw: fake)
+
+    client.post("/copilot/patients/pt-ravi/schedule")
+    ravi = client.get("/copilot/patients/pt-ravi").json()
+    assert ravi["stage"] == "scheduling"
+    assert ravi["appointment"] is None
+    assert "call_failed" in [e["kind"] for e in ravi["events"]]
+
+
+def test_scheduling_falls_back_when_discovery_is_unconfigured(
+        client, monkeypatch):
+    """No Tavily key must not block the booking."""
+    class _Unavailable(_FakeCalling):
+        def post(self, url, json=None):
+            return _FakeResponse(503, {"detail": "unavailable"})
+
+    monkeypatch.setattr(orchestrate, "SIMULATE", False)
+    monkeypatch.setattr(orchestrate, "_later",
+                        lambda delay, fn, *args: fn(*args))
+    monkeypatch.setattr(orchestrate.httpx, "Client",
+                        lambda **kw: _Unavailable([]))
+
+    client.post("/copilot/patients/pt-ravi/schedule")
+    ravi = client.get("/copilot/patients/pt-ravi").json()
+    assert ravi["stage"] == "booked"
+    assert ravi["appointment"]["center_name"] == "Hudson Infusion Center"
 
 
 def test_submit_hands_the_case_to_the_payer(client):
