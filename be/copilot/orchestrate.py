@@ -194,15 +194,6 @@ def _live_schedule(patient_id: str, drug: str, starts_at: str,
                         "offers_drug": True, "source_url": row["source_url"]}
                        for row in candidates]
             chosen = candidates[0]
-            tracker.append_event(
-                patient_id, "center_search",
-                f"Found {len(centers)} infusion centers near {SEARCH_ZIP} "
-                f"for {drug}.",
-                {"centers": centers, "chosen": chosen["name"]})
-            tracker.append_event(
-                patient_id, "slot_identified",
-                f"Slot held at {chosen['name']} for {starts_at}.",
-                {"center_name": chosen["name"], "starts_at": starts_at})
 
             placed = c.post(
                 f"/facility-searches/{search['search_id']}/demo-calls",
@@ -223,6 +214,16 @@ def _live_schedule(patient_id: str, drug: str, starts_at: str,
         print(f"[copilot error] calling subsystem: {type(exc).__name__}: {exc}")
         return False
 
+    # Emitted only once the call is placed, so a fallback owns the timeline
+    # alone rather than contradicting a discovery that never led to a call.
+    tracker.append_event(
+        patient_id, "center_search",
+        f"Found {len(centers)} infusion centers near {SEARCH_ZIP} for {drug}.",
+        {"centers": centers, "chosen": chosen["name"]})
+    tracker.append_event(
+        patient_id, "slot_identified",
+        f"Slot held at {chosen['name']} for {starts_at}.",
+        {"center_name": chosen["name"], "starts_at": starts_at})
     tracker.write_call(patient_id, {"call_id": call_id, "status": "preparing",
                                     "outcome": None, "summary": None})
     tracker.append_event(patient_id, "call_created",
