@@ -22,8 +22,8 @@ Every inference call goes to a Gemma-family model. No OpenAI, Anthropic, or othe
 
 | Model | Role | Location |
 |---|---|---|
-| EmbeddingGemma (768-dim) | Embeds policy chunks at index time and queries at search time. | `be/docsearch/embed.py` |
-| Gemma 4 (`gemma4:e4b`) | Reasoning over retrieved policy text: criteria checking, structured output, letter drafting. | `be/` agent layer, `voice/` |
+| EmbeddingGemma (768-dim) | Embeds policy chunks at index time and queries at search time. | `be/docsearch/embed.py:36` is the only outbound inference call in `be/`. Model name at `:10`, task prefixes at `:15`, callers at `:56` and `:60`. |
+| Gemma 4 (`gemma4:e4b`) | Reasoning over retrieved policy text: criteria checking, structured output, letter drafting. | `voice/`. The retrieval layer in this README does not call it. |
 
 Both run through [Ollama](https://ollama.com). No API key is required; `GEMMA_PROVIDER=ollama` is the default.
 
